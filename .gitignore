@@ -1,0 +1,53 @@
+# ==========================================
+# MiMO Project .gitignore
+# ==========================================
+
+# Vecchi backup manuali (sostituiti da Git)
+/bk/
+
+# Documentazione esterna e libri pesanti (gestiti separatamente su Google Drive)
+/Documenti sulla musica/
+
+# Python: cache e ambienti virtuali
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.venv/
+venv/
+ENV/
+env/
+mimo_hub_juce/eye_env/
+
+# C++ & JUCE: cartelle di build e binari
+mimo_hub_juce/build/
+*.obj
+*.o
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.lib
+CMakeUserPresets.json
+.cmake/
+
+# IDE e Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Log temporanei e dump
+err.txt
+out.txt
+*.log
+
+# Windows shortcuts
+*.lnk
+
+# Sistema operativo e Drive
+.DS_Store
+Thumbs.db
+desktop.ini

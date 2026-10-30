@@ -1,0 +1,232 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mimo-project.org/schemas/mimo_package_schema.json",
+  "title": "MiMO Package Manifest Schema",
+  "description": "Schema formale di validazione per il file manifest.json dei pacchetti di estensione .mimo",
+  "type": "object",
+  "required": [
+    "mimo_version",
+    "name",
+    "author",
+    "engine_type",
+    "live_scenes"
+  ],
+  "properties": {
+    "mimo_version": {
+      "type": "string",
+      "description": "Versione minima compatibile dell'ecosistema MiMO (semver)",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "name": {
+      "type": "string",
+      "description": "Nome visualizzato del pacchetto .mimo",
+      "minLength": 3,
+      "maxLength": 64
+    },
+    "author": {
+      "type": "string",
+      "description": "Nome o pseudonimo del sound designer o creatore del modulo"
+    },
+    "description": {
+      "type": "string",
+      "description": "Descrizione approfondita degli strumenti, synth e contesti musicali del pacchetto"
+    },
+    "hardware_required": {
+      "type": "object",
+      "description": "Requisiti hardware fisici per il corretto funzionamento del pacchetto",
+      "properties": {
+        "modules": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Elenco dei moduli richiesti (es. pico_drum, mimo_eye, potentiometer_bank)"
+        },
+        "ports_mapping": {
+          "type": "object",
+          "description": "Assegnazione consigliata dei moduli alle 5 porte hardware",
+          "properties": {
+            "port_1": { "type": "string" },
+            "port_2": { "type": "string" },
+            "port_3": { "type": "string" },
+            "port_4": { "type": "string" },
+            "port_5": { "type": "string" }
+          }
+        }
+      }
+    },
+    "engine_type": {
+      "type": "string",
+      "enum": ["sfz", "faust", "hybrid", "daw_bridge"],
+      "description": "Tipo di motore sonoro: sfizz (.sfz), Faust DSP, Ibrido (sfizz + Faust), oppure Bridge trasparente per DAW"
+    },
+    "engine_config": {
+      "type": "object",
+      "description": "Configurazione specifica per il motore sonoro selezionato",
+      "properties": {
+        "sfz_config": {
+          "type": "object",
+          "description": "Configurazione per strumenti basati su campionamento sfizz",
+          "required": ["sfz_file", "samples_dir"],
+          "properties": {
+            "sfz_file": {
+              "type": "string",
+              "description": "Percorso relativo all'archivio verso il file di definizione .sfz"
+            },
+            "samples_dir": {
+              "type": "string",
+              "description": "Cartella contenente i campioni audio .wav multi-velocity"
+            },
+            "polyphony": {
+              "type": "integer",
+              "default": 32,
+              "minimum": 1,
+              "maximum": 128
+            }
+          }
+        },
+        "faust_config": {
+          "type": "object",
+          "description": "Configurazione per sintetizzatori o effetti compilati tramite Faust DSP",
+          "required": ["dsp_file"],
+          "properties": {
+            "dsp_file": {
+              "type": "string",
+              "description": "Percorso del sorgente .dsp o della libreria compilata nativa (.wasm, .so, .dll)"
+            },
+            "polyphony": {
+              "type": "integer",
+              "default": 8,
+              "minimum": 1,
+              "maximum": 32
+            },
+            "is_effect": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      }
+    },
+    "semantic_macros": {
+      "type": "array",
+      "description": "Definizione delle macro semantiche controllabili dagli encoder della Rock Pi (One-Knob)",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "encoder_target"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "description": "Nome user-friendly (es. Spazio, Calore, Morbidezza)" },
+          "encoder_target": {
+            "type": "string",
+            "enum": ["WORKSPACE", "EFFECTS", "INSTRUMENTS"]
+          },
+          "default_val": { "type": "number", "minimum": 0, "maximum": 100, "default": 50 },
+          "under_the_hood_params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["dsp_param", "min", "max"],
+              "properties": {
+                "dsp_param": { "type": "string" },
+                "min": { "type": "number" },
+                "max": { "type": "number" },
+                "curve": { "type": "string", "enum": ["linear", "exponential", "logarithmic"], "default": "linear" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "live_scenes": {
+      "type": "object",
+      "description": "Mappatura obbligatoria delle 5 Scene per il Workspace LIVE (Slot 1..5)",
+      "required": ["scene_1", "scene_2", "scene_3", "scene_4", "scene_5"],
+      "properties": {
+        "scene_1": { "$ref": "#/definitions/scene_definition" },
+        "scene_2": { "$ref": "#/definitions/scene_definition" },
+        "scene_3": { "$ref": "#/definitions/scene_definition" },
+        "scene_4": { "$ref": "#/definitions/scene_definition" },
+        "scene_5": { "$ref": "#/definitions/scene_definition" }
+      }
+    },
+    "pro_daw_mapping": {
+      "type": "object",
+      "description": "Parametri di instradamento MIDI/OSC trasparente per DAW professionale (Ableton, Bitwig, Kontakt)",
+      "properties": {
+        "virtual_midi_port": { "type": "string", "default": "MiMO Virtual Out" },
+        "channels_by_port": {
+          "type": "object",
+          "properties": {
+            "port_1": { "type": "integer", "minimum": 1, "maximum": 16, "default": 10 },
+            "port_2": { "type": "integer", "minimum": 1, "maximum": 16, "default": 1 },
+            "port_3": { "type": "integer", "minimum": 1, "maximum": 16, "default": 2 },
+            "port_4": { "type": "integer", "minimum": 1, "maximum": 16, "default": 3 },
+            "port_5": { "type": "integer", "minimum": 1, "maximum": 16, "default": 4 }
+          }
+        },
+        "eye_3d_mapping": {
+          "type": "object",
+          "properties": {
+            "axis_x": {
+              "type": "object",
+              "properties": {
+                "midi_cc": { "type": "integer", "minimum": 0, "maximum": 127, "default": 16 },
+                "osc_path": { "type": "string", "default": "/mimo/eye/x" }
+              }
+            },
+            "axis_y": {
+              "type": "object",
+              "properties": {
+                "midi_cc": { "type": "integer", "minimum": 0, "maximum": 127, "default": 17 },
+                "osc_path": { "type": "string", "default": "/mimo/eye/y" }
+              }
+            },
+            "axis_z": {
+              "type": "object",
+              "properties": {
+                "midi_cc": { "type": "integer", "minimum": 0, "maximum": 127, "default": 18 },
+                "osc_path": { "type": "string", "default": "/mimo/eye/z" }
+              }
+            }
+          }
+        },
+        "scene_change_behavior": {
+          "type": "string",
+          "enum": ["PROGRAM_CHANGE", "NOTE_TRIGGER", "CC_MAPPING"],
+          "default": "PROGRAM_CHANGE"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "scene_definition": {
+      "type": "object",
+      "required": ["name", "instruments"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "instruments": {
+          "type": "object",
+          "description": "Strumenti associati alle porte 1..5 per questa scena",
+          "properties": {
+            "port_1": { "type": "string" },
+            "port_2": { "type": "string" },
+            "port_3": { "type": "string" },
+            "port_4": { "type": "string" },
+            "port_5": { "type": "string" }
+          }
+        },
+        "effects_state": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["effect_id", "bypass", "macro_val"],
+            "properties": {
+              "effect_id": { "type": "string" },
+              "bypass": { "type": "boolean" },
+              "macro_val": { "type": "number", "minimum": 0, "maximum": 100 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

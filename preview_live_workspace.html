@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MiMO Hub · Workspace LIVE (Sketchbook & Crayon Naif)</title>
+
+  <!-- TailwindCSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#1f1a17',
+            paper: '#f3ecdc',
+            crayon: {
+              cherry: '#e76f6f',
+              ochre: '#e9b949',
+              sage: '#8fb996',
+              cyan: '#5fb7d4',
+              lilac: '#b39ddb',
+              peach: '#f4a261',
+              rose: '#f2a6b8',
+              mint: '#9fd8c4',
+            },
+          },
+          fontFamily: {
+            hand: ['"Caveat"', '"Patrick Hand"', 'cursive'],
+            marker: ['"Permanent Marker"', '"Caveat"', 'cursive'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- React 18, ReactDOM & Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Google Fonts: Caveat & Permanent Marker -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Permanent+Marker&display=swap"
+    rel="stylesheet"
+  />
+
+  <style>
+    /* Superficie Carta Ruvida da Disegno Naif */
+    body {
+      background-color: #f3ecdc;
+      background-image:
+        radial-gradient(rgba(31, 26, 23, 0.045) 1px, transparent 0),
+        radial-gradient(rgba(160, 125, 80, 0.05) 1px, transparent 0),
+        linear-gradient(135deg, rgba(255, 252, 242, 0.65) 0%, rgba(235, 224, 202, 0.55) 100%);
+      background-size: 23px 23px, 37px 37px, 100% 100%;
+      background-position: 0 0, 11px 15px, 0 0;
+      color: #1f1a17;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(31, 26, 23, 0.05); }
+    ::-webkit-scrollbar-thumb { background: #1f1a17; border-radius: 3px; }
+
+    @keyframes springSnap {
+      0% { transform: scale(0.92); }
+      50% { transform: scale(1.06); }
+      75% { transform: scale(0.98); }
+      100% { transform: scale(1); }
+    }
+    .animate-spring {
+      animation: springSnap 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+  </style>
+</head>
+<body class="overflow-x-hidden min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+    const INK = '#1f1a17';
+    const CRAYON = {
+      cherry: '#e76f6f',
+      ochre: '#e9b949',
+      sage: '#8fb996',
+      cyan: '#5fb7d4',
+      lilac: '#b39ddb',
+      peach: '#f4a261',
+      rose: '#f2a6b8',
+      mint: '#9fd8c4',
+    };
+
+    const SLOT_COLORS = [
+      CRAYON.cherry, // Slot 1
+      CRAYON.cyan,   // Slot 2
+      CRAYON.ochre,  // Slot 3
+      CRAYON.sage,   // Slot 4
+      CRAYON.lilac,  // Slot 5
+    ];
+
+    // Tracciati SVG a penna deterministici
+    function hashStr(str) {
+      let h = 2166136261;
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    }
+
+    function mulberry32(a) {
+      return function () {
+        a |= 0;
+        a = (a + 0x6d2b79f5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    const rng = (seed) => mulberry32(typeof seed === 'string' ? hashStr(seed) : seed);
+    const r1 = (n) => Math.round(n * 10) / 10;
+
+    function smoothPath(pts) {
+      if (!pts || pts.length < 2) return '';
+      let d = `M${r1(pts[0][0])} ${r1(pts[0][1])}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[i - 1] || pts[i];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[i + 2] || p2;
+        const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+        const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+        const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+        const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+        d += ` C${r1(c1x)} ${r1(c1y)} ${r1(c2x)} ${r1(c2y)} ${r1(p2[0])} ${r1(p2[1])}`;
+      }
+      return d;
+    }
+
+    function sketchEllipse(cx, cy, rx, ry, seed, amp = 1.2) {
+      const rand = rng(seed);
+      const n = 24;
+      const start = rand() * Math.PI * 2;
+      const pts = [];
+      for (let i = 0; i <= n + 3; i++) {
+        const t = start + (i / n) * Math.PI * 2;
+        const wob = Math.sin(t * 3 + rand() * 6) * amp;
+        pts.push([cx + Math.cos(t) * (rx + wob), cy + Math.sin(t) * (ry + wob)]);
+      }
+      return smoothPath(pts);
+    }
+
+    function roughRectPath(w, h, seed) {
+      const rand = rng(seed);
+      const inset = 3;
+      const a = inset;
+      const b = inset;
+      const c = w - inset;
+      const d = h - inset;
+      const p = [];
+      p.push([a + (rand() - 0.5) * 2, b + (rand() - 0.5) * 2]);
+      p.push([c + (rand() - 0.5) * 2, b + (rand() - 0.5) * 2]);
+      p.push([c + (rand() - 0.5) * 2, d + (rand() - 0.5) * 2]);
+      p.push([a + (rand() - 0.5) * 2, d + (rand() - 0.5) * 2]);
+      p.push([a + (rand() - 0.5) * 2, b + (rand() - 0.5) * 2]);
+      return smoothPath(p);
+    }
+
+    // Componente SketchBox per contorni disegnati a mano
+    function SketchBox({ seed = 'box', fill, fillOpacity = 0.8, strokeWidth = 1.8, className = '', children, ...rest }) {
+      return (
+        <div className={`relative ${className}`} {...rest}>
+          {fill && (
+            <div
+              className="absolute inset-1 rounded transition-opacity duration-300 pointer-events-none"
+              style={{ backgroundColor: fill, opacity: fillOpacity }}
+            />
+          )}
+          <div className="relative z-10">{children}</div>
+        </div>
+      );
+    }
+
+    // Presets Polaroid iniziali
+    const INITIAL_POLAROIDS = [
+      {
+        id: 'pol-vintage-beat',
+        title: 'Batte-Funk 70 & Tape',
+        timestamp: '14:20',
+        engineType: 'hybrid',
+        engineLabel: 'Hybrid (sfizz + Faust)',
+        summaryBadges: [
+          { text: 'Kit 808 Vintage (sfizz)', color: CRAYON.cherry },
+          { text: 'Tape Delay 350ms (Faust)', color: CRAYON.cyan },
+          { text: 'Velocity -> Drive', color: CRAYON.ochre },
+        ],
+        bpm: 112,
+        rotationDeg: -1.2,
+      },
+      {
+        id: 'pol-theremin-nuvola',
+        title: 'Theremin Nuvola 3D',
+        timestamp: '14:24',
+        engineType: 'faust',
+        engineLabel: 'Faust DSP 64-bit',
+        summaryBadges: [
+          { text: 'Occhio AI 60 FPS', color: CRAYON.cyan },
+          { text: 'Theremin Nuvola', color: CRAYON.mint },
+          { text: 'Reverb Spaziale 3D', color: CRAYON.lilac },
+        ],
+        bpm: 96,
+        rotationDeg: 1.4,
+      },
+      {
+        id: 'pol-piano-feltro',
+        title: 'Piano Feltro Ambient',
+        timestamp: '14:28',
+        engineType: 'sfizz',
+        engineLabel: 'sfizz Multi-Vel',
+        summaryBadges: [
+          { text: 'Piano Feltro (sfizz)', color: CRAYON.lilac },
+          { text: 'Riverbero Carta', color: CRAYON.rose },
+          { text: 'Distanza -> Damping', color: CRAYON.sage },
+        ],
+        bpm: 84,
+        rotationDeg: -0.8,
+      },
+      {
+        id: 'pol-toy-drums',
+        title: 'Tamburi Giocattolo & Fuzz',
+        timestamp: '14:32',
+        engineType: 'hybrid',
+        engineLabel: 'Hybrid (sfizz + Faust)',
+        summaryBadges: [
+          { text: 'Toy Drums (sfizz)', color: CRAYON.peach },
+          { text: 'Filtro Naif SVF', color: CRAYON.cyan },
+        ],
+        bpm: 126,
+        rotationDeg: 1.1,
+      },
+      {
+        id: 'pol-pad-gessetto',
+        title: 'Pad Gessetto Granulare',
+        timestamp: '14:35',
+        engineType: 'faust',
+        engineLabel: 'Faust DSP Sintesi',
+        summaryBadges: [
+          { text: 'Pad Gessetto (Faust)', color: CRAYON.mint },
+          { text: 'Delay Spaziale', color: CRAYON.cyan },
+        ],
+        bpm: 108,
+        rotationDeg: -1.5,
+      },
+      {
+        id: 'pol-acid-bass',
+        title: 'Acid Bass 303 & Sub',
+        timestamp: '14:40',
+        engineType: 'faust',
+        engineLabel: 'Faust DSP 303 Model',
+        summaryBadges: [
+          { text: 'TB-303 Acid (Faust)', color: CRAYON.cherry },
+          { text: 'Overdrive Analogico', color: CRAYON.peach },
+        ],
+        bpm: 128,
+        rotationDeg: 0.9,
+      },
+    ];
+
+    // =========================================================================
+    // 1-BUTTON LOOPER MINIMALE
+    // =========================================================================
+    function LiveLooper({ state, progress, onToggle, onClear }) {
+      const size = 110;
+      const cx = size / 2;
+      const cy = size / 2;
+      const r = size * 0.40;
+
+      const outerPath = useMemo(() => sketchEllipse(cx, cy, r, r, 'looper-circ', 1.8), [cx, cy, r]);
+
+      let color = 'transparent';
+      let title = 'PRONTO';
+      if (state === 'REC') { color = CRAYON.cherry; title = 'REC'; }
+      if (state === 'PLAY') { color = CRAYON.sage; title = 'PLAY'; }
+      if (state === 'OVERDUB') { color = CRAYON.ochre; title = 'DUB'; }
+
+      // Arco di sweep circolare in tempo reale
+      const angle = progress * 360;
+      const rad = (angle - 90) * (Math.PI / 180);
+      const sx = cx + r * Math.cos(rad);
+      const sy = cy + r * Math.sin(rad);
+      const largeArc = angle > 180 ? 1 : 0;
+      const sweepD = progress > 0.01
+        ? `M ${cx} ${cy - r} A ${r} ${r} 0 ${largeArc} 1 ${sx} ${sy}`
+        : '';
+
+      return (
+        <div
+          onClick={onToggle}
+          onContextMenu={(e) => { e.preventDefault(); onClear(); }}
+          className="group flex flex-col items-center justify-center cursor-pointer select-none transition-transform active:scale-95"
+          title="1-Button Looper: Clic o Barra Spazio per REC/PLAY/OVERDUB. Tasto destro per fermare."
+          style={{ width: size, height: size }}
+        >
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="overflow-visible">
+            {state !== 'IDLE' && (
+              <circle cx={cx} cy={cy} r={r * 1.15} fill={color} opacity={0.35} className="animate-pulse" />
+            )}
+            <circle cx={cx} cy={cy} r={r} fill={color} opacity={state === 'IDLE' ? 0.08 : 0.85} className="transition-colors duration-200" />
+            {sweepD && (
+              <path d={sweepD} fill="none" stroke={INK} strokeWidth={5} strokeLinecap="round" />
+            )}
+            <path d={outerPath} fill="none" stroke={INK} strokeWidth={state !== 'IDLE' ? 2.6 : 1.8} />
+
+            {/* Simbolo centrale a forte impatto */}
+            {state === 'REC' && <circle cx={cx} cy={cy} r={r * 0.38} fill={INK} />}
+            {state === 'PLAY' && (
+              <polygon points={`${cx - r * 0.22},${cy - r * 0.32} ${cx + r * 0.34},${cy} ${cx - r * 0.22},${cy + r * 0.32}`} fill={INK} />
+            )}
+            {state === 'OVERDUB' && (
+              <g stroke={INK} strokeWidth={4} strokeLinecap="round">
+                <line x1={cx - r * 0.28} y1={cy} x2={cx + r * 0.28} y2={cy} />
+                <line x1={cx} y1={cy - r * 0.28} x2={cx} y2={cy + r * 0.28} />
+              </g>
+            )}
+            {state === 'IDLE' && (
+              <circle cx={cx} cy={cy} r={r * 0.24} fill="none" stroke={INK} strokeWidth={2.5} strokeDasharray="3 3" />
+            )}
+          </svg>
+          <div className="mt-1 font-marker text-xs tracking-wider text-ink font-bold">{title}</div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // SCHEDA POLAROID PER L'ALBUM
+    // =========================================================================
+    function LivePolaroidCard({ polaroid, isSelected, onSelect, onDoubleClick }) {
+      const { id, title, timestamp, engineType, summaryBadges, bpm, rotationDeg } = polaroid;
+
+      const handleDragStart = (e) => {
+        e.dataTransfer.setData('application/mimo-polaroid', JSON.stringify(polaroid));
+        e.dataTransfer.effectAllowed = 'copyMove';
+      };
+
+      return (
+        <div
+          draggable
+          onDragStart={handleDragStart}
+          onClick={() => onSelect(id)}
+          onDoubleClick={() => onDoubleClick(polaroid)}
+          style={{ transform: `rotate(${rotationDeg}deg)` }}
+          className={`group relative cursor-grab select-none transition-all duration-200 active:cursor-grabbing hover:-translate-y-1 ${
+            isSelected ? 'ring-4 ring-crayon-ochre scale-102 shadow-2xl z-20' : 'hover:shadow-xl'
+          }`}
+        >
+          <div className="relative rounded-sm border-2 border-ink bg-[#fdfbf7] p-2.5 pb-4 shadow-md">
+            <div className="relative h-28 w-full rounded border border-ink bg-[#f3ecdc] p-2 overflow-hidden flex flex-col justify-between">
+              <div className="flex items-center justify-between gap-1 z-10">
+                <span className="font-hand text-xs font-bold text-ink/75">Scatto · {timestamp}</span>
+                <span
+                  className="inline-flex items-center gap-1 rounded border border-ink px-1.5 py-0.5 font-marker text-[10px] text-ink shadow-sm"
+                  style={{ backgroundColor: engineType === 'sfizz' ? CRAYON.peach : engineType === 'faust' ? CRAYON.cyan : CRAYON.ochre }}
+                >
+                  {engineType.toUpperCase()}
+                </span>
+              </div>
+
+              <div className="my-auto flex flex-wrap gap-1 z-10">
+                {summaryBadges.slice(0, 3).map((b, i) => (
+                  <span
+                    key={i}
+                    className="truncate max-w-[170px] rounded border border-ink px-1.5 py-0.5 font-hand text-[11px] font-bold text-ink"
+                    style={{ backgroundColor: b.color }}
+                  >
+                    {b.text}
+                  </span>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] font-hand text-ink/65 z-10">
+                <span>{bpm ? `${bpm} BPM` : 'Preset Live'}</span>
+                <span className="italic">{polaroid.engineLabel}</span>
+              </div>
+            </div>
+
+            <div className="mt-2.5 px-1">
+              <div className="truncate font-marker text-base leading-tight text-ink group-hover:text-[#b91c1c] transition-colors">
+                {title}
+              </div>
+              <div className="flex items-center justify-between mt-1 text-[11px] font-hand text-ink/70">
+                <span>Trascina su Slot 1-5</span>
+                {isSelected ? (
+                  <span className="font-bold text-crayon-cherry">★ PRONTA (Tieni premuto 1-5)</span>
+                ) : (
+                  <span className="opacity-60">Clicca per selezionare</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // GRANDE SLOT SCENA RETTANGOLARE (1 DI 5)
+    // =========================================================================
+    function LiveSceneSlot({
+      slotIndex,
+      color,
+      polaroid,
+      isActive,
+      isDimmed,
+      isHovered,
+      isSnapped,
+      holdProgress,
+      onTrigger,
+      onDropPolaroid,
+      onDoubleClick,
+    }) {
+      const [dragOver, setDragOver] = useState(false);
+      const slotNumber = slotIndex + 1;
+
+      const handleDragOver = (e) => {
+        if (e.dataTransfer.types.includes('application/mimo-polaroid')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          setDragOver(true);
+        }
+      };
+
+      const handleDragLeave = () => setDragOver(false);
+
+      const handleDrop = (e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const raw = e.dataTransfer.getData('application/mimo-polaroid');
+        if (!raw) return;
+        try {
+          const dropped = JSON.parse(raw);
+          onDropPolaroid(slotIndex, dropped);
+        } catch {}
+      };
+
+      const hoverActive = isHovered || dragOver;
+
+      let fillOpacity = 0.08;
+      if (isActive) fillOpacity = 0.88;
+      else if (hoverActive) fillOpacity = 0.35;
+      else if (polaroid) fillOpacity = 0.22;
+
+      return (
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => onTrigger(slotIndex)}
+          onDoubleClick={() => polaroid && onDoubleClick(slotIndex, polaroid)}
+          className={`group relative flex-1 min-h-[260px] cursor-pointer select-none transition-all duration-200 ${
+            hoverActive ? 'scale-[1.04] -translate-y-2' : ''
+          } ${
+            isSnapped ? 'animate-spring' : ''
+          } ${
+            isDimmed && !isActive ? 'opacity-40 grayscale-[25%] hover:opacity-85 hover:grayscale-0' : 'opacity-100'
+          } ${
+            isActive ? 'scale-[1.02] -translate-y-1 z-10' : ''
+          }`}
+          title={
+            polaroid
+              ? `SLOT ${slotNumber}: "${polaroid.title}". Clic per suonare, doppio clic per Quick-Edit.`
+              : `SLOT ${slotNumber} Libero. Trascina qui una Polaroid o tieni premuto il tasto ${slotNumber} per 1s.`
+          }
+        >
+          <div
+            className={`relative h-full w-full rounded-lg border-2 border-ink bg-[#f6f0e2]/95 p-4 flex flex-col justify-between overflow-hidden shadow-md transition-all ${
+              isActive ? 'ring-4 ring-offset-2 ring-ink shadow-2xl' : 'hover:shadow-lg'
+            }`}
+          >
+            {/* Riempimento pastello a intensità contestuale */}
+            <div
+              className="absolute inset-0 pointer-events-none transition-opacity duration-300"
+              style={{ backgroundColor: color, opacity: fillOpacity }}
+            />
+
+            {/* Numero 1-5 in Filigrana Gigante */}
+            <div
+              className="pointer-events-none absolute inset-0 flex items-center justify-center font-marker text-[130px] text-ink select-none"
+              style={{ opacity: isActive ? 0.08 : 0.05 }}
+            >
+              {slotNumber}
+            </div>
+
+            {/* Header dello Slot */}
+            <div className="relative z-10 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span
+                  className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-ink font-marker text-xs font-bold text-ink shadow"
+                  style={{ backgroundColor: color }}
+                >
+                  {slotNumber}
+                </span>
+                <span className="font-marker text-xs tracking-wider text-ink font-bold">
+                  PULSANTE [{slotNumber}]
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {isActive && (
+                  <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-ink opacity-40" />
+                )}
+                <div className={`h-3 w-3 rounded-full border-2 border-ink ${isActive ? 'bg-ink' : 'bg-transparent'}`} />
+              </div>
+            </div>
+
+            {/* Corpo Slot: Scena caricata ad altissima leggibilità per il palco */}
+            <div className="relative z-10 my-auto py-2">
+              {polaroid ? (
+                <div className="space-y-2">
+                  <div className="font-marker text-xl font-bold leading-tight text-ink drop-shadow-sm">
+                    {polaroid.title}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      className="rounded border border-ink px-1.5 py-0.5 font-marker text-[10px] text-ink"
+                      style={{ backgroundColor: polaroid.engineType === 'sfizz' ? '#f4a261' : polaroid.engineType === 'faust' ? '#5fb7d4' : '#e9b949' }}
+                    >
+                      {polaroid.engineType.toUpperCase()}
+                    </span>
+                    <span className="font-hand text-xs font-bold text-ink/80">
+                      {polaroid.bpm ? `${polaroid.bpm} BPM` : 'Preset'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {polaroid.summaryBadges?.slice(0, 2).map((b, i) => (
+                      <span key={i} className="truncate max-w-[130px] rounded border border-ink/80 bg-white/75 px-1.5 py-0.5 font-hand text-[10px] font-bold text-ink">
+                        {b.text}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="py-6 text-center">
+                  <div className="font-marker text-sm text-ink/40 uppercase tracking-widest">Slot Libero</div>
+                  <div className="font-hand text-xs text-ink/60 mt-1">Trascina qui una Polaroid</div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Slot */}
+            <div className="relative z-10 pt-2 border-t border-ink/20 flex items-center justify-between text-[11px] font-hand">
+              {isActive ? (
+                <span className="font-marker font-bold text-ink flex items-center gap-1">● IN ESECUZIONE</span>
+              ) : (
+                <span className="text-ink/60 font-semibold">Tasto [{slotNumber}]</span>
+              )}
+              {polaroid && (
+                <span className="text-ink/75 italic group-hover:text-ink font-bold transition-colors">
+                  Doppio clic: Quick-Edit
+                </span>
+              )}
+            </div>
+
+            {/* Avanzamento Assegnazione Rapida (Long Press 1 secondo) */}
+            {holdProgress > 0 && (
+              <div className="absolute inset-x-0 bottom-0 h-2 bg-ink/20 overflow-hidden z-20">
+                <div className="h-full bg-ink transition-all duration-75" style={{ width: `${holdProgress}%` }} />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // APPLICAZIONE PRINCIPALE LIVE WORKSPACE
+    // =========================================================================
+    function App() {
+      const [album, setAlbum] = useState(INITIAL_POLAROIDS);
+      const [slots, setSlots] = useState([
+        INITIAL_POLAROIDS[0],
+        INITIAL_POLAROIDS[1],
+        INITIAL_POLAROIDS[2],
+        null,
+        null,
+      ]);
+      const [activeSlotIdx, setActiveSlotIdx] = useState(0);
+      const [selectedAlbumId, setSelectedAlbumId] = useState(null);
+      const [justSnappedIdx, setJustSnappedIdx] = useState(null);
+      const [holdProgress, setHoldProgress] = useState({ 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 });
+      const holdTimersRef = useRef({});
+
+      // 1-Button Looper
+      const [looperState, setLooperState] = useState('IDLE');
+      const [looperProgress, setLooperProgress] = useState(0);
+      const loopStartRef = useRef(0);
+      const loopDurRef = useRef(4000);
+
+      // Modalità Quick-Edit (Modifica d'emergenza in Studio)
+      const [quickEditSlot, setQuickEditSlot] = useState(null);
+
+      // Esecuzione / Trigger Scena
+      const triggerScene = (slotIdx) => {
+        setActiveSlotIdx(slotIdx);
+      };
+
+      // Assegnazione Drag & Drop con Sostituzione Dolce (la vecchia torna nell'Album)
+      const assignPolaroidToSlot = (slotIdx, polaroid) => {
+        setSlots((prev) => {
+          const old = prev[slotIdx];
+          const next = [...prev];
+          next[slotIdx] = polaroid;
+
+          if (old && old.id !== polaroid.id) {
+            setAlbum((alb) => (alb.some((p) => p.id === old.id) ? alb : [old, ...alb]));
+          }
+          return next;
+        });
+
+        setJustSnappedIdx(slotIdx);
+        setTimeout(() => setJustSnappedIdx(null), 450);
+        setSelectedAlbumId(null);
+      };
+
+      // Assegnazione Rapida (Hold 1 secondo)
+      const startHold = (slotIdx) => {
+        if (holdTimersRef.current[slotIdx]) return;
+        const start = Date.now();
+        holdTimersRef.current[slotIdx] = setInterval(() => {
+          const elapsed = Date.now() - start;
+          const prog = Math.min(100, Math.round((elapsed / 1000) * 100));
+          setHoldProgress((hp) => ({ ...hp, [slotIdx]: prog }));
+
+          if (prog >= 100) {
+            clearInterval(holdTimersRef.current[slotIdx]);
+            delete holdTimersRef.current[slotIdx];
+            setHoldProgress((hp) => ({ ...hp, [slotIdx]: 0 }));
+
+            if (selectedAlbumId) {
+              const chosen = album.find((p) => p.id === selectedAlbumId);
+              if (chosen) assignPolaroidToSlot(slotIdx, chosen);
+            } else {
+              triggerScene(slotIdx);
+            }
+          }
+        }, 30);
+      };
+
+      const cancelHold = (slotIdx) => {
+        if (holdTimersRef.current[slotIdx]) {
+          clearInterval(holdTimersRef.current[slotIdx]);
+          delete holdTimersRef.current[slotIdx];
+        }
+        setHoldProgress((hp) => ({ ...hp, [slotIdx]: 0 }));
+        triggerScene(slotIdx);
+      };
+
+      // Ciclo Looper
+      const toggleLooper = () => {
+        const now = performance.now();
+        setLooperState((curr) => {
+          if (curr === 'IDLE') { loopStartRef.current = now; return 'REC'; }
+          if (curr === 'REC') { loopDurRef.current = Math.max(500, now - loopStartRef.current); loopStartRef.current = now; return 'PLAY'; }
+          if (curr === 'PLAY') return 'OVERDUB';
+          if (curr === 'OVERDUB') return 'PLAY';
+          return 'IDLE';
+        });
+      };
+
+      const clearLooper = () => {
+        setLooperState('IDLE');
+        setLooperProgress(0);
+      };
+
+      useEffect(() => {
+        if (looperState === 'IDLE') {
+          setLooperProgress(0);
+          return undefined;
+        }
+        let anim;
+        const tick = () => {
+          const now = performance.now();
+          const elapsed = now - loopStartRef.current;
+          setLooperProgress((elapsed % loopDurRef.current) / loopDurRef.current);
+          anim = requestAnimationFrame(tick);
+        };
+        anim = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(anim);
+      }, [looperState]);
+
+      // Tasti 1-5 e Spazio
+      useEffect(() => {
+        const activeKeys = new Set();
+        const onKeyDown = (e) => {
+          if (e.target.tagName === 'INPUT') return;
+          if (['1', '2', '3', '4', '5'].includes(e.key)) {
+            const idx = parseInt(e.key, 10) - 1;
+            if (quickEditSlot !== null && quickEditSlot === idx) {
+              setQuickEditSlot(null); // Chiude Quick-Edit
+              return;
+            }
+            if (!activeKeys.has(e.key)) {
+              activeKeys.add(e.key);
+              startHold(idx);
+            }
+          }
+          if (e.code === 'Space') {
+            e.preventDefault();
+            toggleLooper();
+          }
+          if (e.key === 'Escape') {
+            setSelectedAlbumId(null);
+            setQuickEditSlot(null);
+          }
+        };
+
+        const onKeyUp = (e) => {
+          if (['1', '2', '3', '4', '5'].includes(e.key)) {
+            const idx = parseInt(e.key, 10) - 1;
+            activeKeys.delete(e.key);
+            cancelHold(idx);
+          }
+        };
+
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
+        return () => {
+          window.removeEventListener('keydown', onKeyDown);
+          window.removeEventListener('keyup', onKeyUp);
+        };
+      }, [selectedAlbumId, quickEditSlot]);
+
+      return (
+        <div className="relative min-h-screen p-6 md:p-10 flex flex-col justify-between">
+          {/* BANNER FLUTTUANTE QUICK-EDIT */}
+          {quickEditSlot !== null && (
+            <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-ink/70 backdrop-blur-sm p-6">
+              <div className="max-w-2xl w-full rounded-2xl border-3 border-ink bg-[#fdfbf7] p-8 shadow-2xl text-center space-y-6">
+                <div className="inline-flex items-center gap-2 rounded-full border border-ink bg-crayon-cyan/30 px-3 py-1 font-marker text-xs">
+                  MODALITÀ QUICK-EDIT (EMERGENZA STUDIO)
+                </div>
+                <h2 className="font-marker text-3xl text-ink">
+                  Ritocco Scena [{quickEditSlot + 1}]: "{slots[quickEditSlot]?.title}"
+                </h2>
+                <p className="font-hand text-lg text-ink/80">
+                  I nodi DSP e i parametri audio di questo preset sono stati pre-caricati nel motore. Modifica pure i volumi, il riverbero o il filtro.
+                </p>
+
+                <div className="p-4 rounded-lg border-2 border-dashed border-ink/40 bg-[#f3ecdc] flex items-center justify-around font-hand text-base">
+                  <div><b>Campionatore:</b> {slots[quickEditSlot]?.engineLabel}</div>
+                  <div><b>BPM:</b> {slots[quickEditSlot]?.bpm}</div>
+                  <div><b>Stato:</b> Nessuna interruzione audio</div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setQuickEditSlot(null)}
+                  className="rounded-xl border-3 border-ink bg-crayon-sage px-8 py-3.5 font-marker text-xl text-ink shadow-2xl hover:opacity-90 active:scale-95 transition-all"
+                  style={{ backgroundColor: CRAYON.sage }}
+                >
+                  ✓ TORNA AL LIVE (Modifiche Salvate Silenziosamente)
+                </button>
+                <div className="font-hand text-xs text-ink/60">
+                  Puoi anche premere il tasto [{quickEditSlot + 1}] della console o [Esc] per tornare al Live
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* HEADER */}
+          <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b-2 border-ink/20 pb-4">
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="font-marker text-2xl md:text-3xl tracking-wide text-ink">
+                  MiMO HUB · WORKSPACE LIVE
+                </h1>
+                <span
+                  className="rounded-full border border-ink px-3 py-0.5 font-marker text-xs text-ink shadow-sm"
+                  style={{ backgroundColor: CRAYON.sage }}
+                >
+                  ● ROCK PI I2C SINCRONIZZATA
+                </span>
+              </div>
+              <p className="font-hand text-base text-ink/75 mt-1">
+                Performance dal vivo a prova di errore, eliminando ogni distrazione visiva. Estetica Sketchbook & Crayon Naif.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 rounded border border-ink bg-[#fdfbf7] px-3 py-1 font-hand text-xs text-ink/85 shadow-sm">
+                <b>Guida Rapida:</b>
+                <span>Tasti [1..5] = Suona</span>
+                <span>·</span>
+                <span>Tieni premuto 1s = Assegna</span>
+                <span>·</span>
+                <span>[Spazio] = Looper</span>
+                <span>·</span>
+                <span>Doppio Clic = Quick-Edit</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 1. L'ALBUM DELLE POLAROID */}
+          <div className="mb-8 flex-1">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="font-marker text-base text-ink flex items-center gap-2">
+                <span>L'ALBUM DELLE POLAROID ({album.length})</span>
+                {selectedAlbumId && (
+                  <span className="animate-pulse rounded border border-ink bg-crayon-ochre px-2 py-0.5 font-hand text-xs font-bold text-ink">
+                    ★ Polaroid selezionata: tieni premuto un tasto 1-5 per 1 secondo per assegnarla al volo!
+                  </span>
+                )}
+              </div>
+              <span className="font-hand text-xs text-ink/65">
+                Trascina una Polaroid su uno dei 5 slot sottostanti
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {album.map((pol) => (
+                <LivePolaroidCard
+                  key={pol.id}
+                  polaroid={pol}
+                  isSelected={pol.id === selectedAlbumId}
+                  onSelect={(id) => setSelectedAlbumId((curr) => (curr === id ? null : id))}
+                  onDoubleClick={(p) => setQuickEditSlot(0)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* 2. LA DOCK DELLE 5 SCENE + 1-BUTTON LOOPER */}
+          <div className="pt-6 border-t-2 border-ink/30">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="font-marker text-base tracking-wide text-ink flex items-center gap-2">
+                <span>DOCK DELLE 5 SCENE HARDWARE (Tasti Fisici 1-5 della Rock Pi)</span>
+                <span className="font-hand text-xs text-ink/65 font-normal">
+                  — Bordo a penna, numero in filigrana, snap elastico e sostituzione fluida
+                </span>
+              </div>
+              <div className="font-hand text-sm text-ink/80">
+                Scena Attiva: <b className="font-marker text-ink">{activeSlotIdx + 1}</b> ({slots[activeSlotIdx]?.title || 'Slot Libero'})
+              </div>
+            </div>
+
+            <div className="flex flex-col lg:flex-row items-stretch gap-4">
+              {/* I 5 GRANDI SLOT SCENA */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 flex-1">
+                {slots.map((pol, idx) => (
+                  <LiveSceneSlot
+                    key={idx}
+                    slotIndex={idx}
+                    color={SLOT_COLORS[idx]}
+                    polaroid={pol}
+                    isActive={idx === activeSlotIdx}
+                    isDimmed={activeSlotIdx !== null && activeSlotIdx !== idx}
+                    isHovered={false}
+                    isSnapped={justSnappedIdx === idx}
+                    holdProgress={holdProgress[idx] || 0}
+                    onTrigger={triggerScene}
+                    onDropPolaroid={assignPolaroidToSlot}
+                    onDoubleClick={(slotI) => setQuickEditSlot(slotI)}
+                  />
+                ))}
+              </div>
+
+              {/* 1-BUTTON LOOPER MINIMALE */}
+              <div className="flex flex-row lg:flex-col items-center justify-center p-4 rounded-xl border-2 border-ink bg-[#fdfbf7] shadow-lg min-w-[140px]">
+                <LiveLooper
+                  state={looperState}
+                  progress={looperProgress}
+                  onToggle={toggleLooper}
+                  onClear={clearLooper}
+                />
+                <div className="mt-2 text-center font-hand text-xs text-ink/75">
+                  [Spazio] o Clic
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

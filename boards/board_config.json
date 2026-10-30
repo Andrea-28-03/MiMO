@@ -1,0 +1,86 @@
+{
+  "board_info": {
+    "model": "Radxa ROCK 4B+ v1.73",
+    "soc": "Rockchip RK3399 / OP1",
+    "os": "Armbian Linux (Minimal CLI)",
+    "gpio_voltage_standard_v": 3.0,
+    "gpio_voltage_tolerance_max_v": 3.14,
+    "hardware_pullup_pins": [3, 5, 27, 28, 29, 31]
+  },
+  "display": {
+    "target": "CUQI 3.5 inch SPI TFT",
+    "framebuffer_device": "/dev/fb1",
+    "driver": "fb_ili9486",
+    "spi_bus": "/dev/spidev1.0",
+    "width": 480,
+    "height": 320,
+    "bits_per_pixel": 16,
+    "color_format": "RGB565",
+    "reserved_pins_zone_red": {
+      "pin_range": "1-26",
+      "spi_mosi": { "pin": 19, "kernel_gpio": 40, "chip": "/dev/gpiochip1", "line": 8 },
+      "spi_miso": { "pin": 21, "kernel_gpio": 39, "chip": "/dev/gpiochip1", "line": 7 },
+      "spi_clk":  { "pin": 23, "kernel_gpio": 41, "chip": "/dev/gpiochip1", "line": 9 },
+      "spi_cs0":  { "pin": 24, "kernel_gpio": 42, "chip": "/dev/gpiochip1", "line": 10 },
+      "rst":      { "pin": 18, "kernel_gpio": 156, "chip": "/dev/gpiochip4", "line": 28, "active_low": true },
+      "dc":       { "pin": 22, "kernel_gpio": 157, "chip": "/dev/gpiochip4", "line": 29 }
+    }
+  },
+  "i2c": {
+    "device": "/dev/i2c-2",
+    "bus_number": 2,
+    "sda": { "pin": 27, "kernel_gpio": 64, "pullup_hw_4k7": true },
+    "scl": { "pin": 28, "kernel_gpio": 65, "pullup_hw_4k7": true },
+    "multiplexer": {
+      "model": "Adafruit PCA9548 / TCA9548A",
+      "address": "0x70",
+      "channels": {
+        "channel_0": {
+          "description": "Scocca interna - 5 Pulsanti Tattili",
+          "expander_model": "MCP23017",
+          "expander_address": "0x20",
+          "buttons_count": 5
+        },
+        "channel_1": { "description": "Porta Esterna MiMO Link 1 (JST-SH / Qwiic)" },
+        "channel_2": { "description": "Porta Esterna MiMO Link 2 (JST-SH / Qwiic)" },
+        "channel_3": { "description": "Porta Esterna MiMO Link 3 (JST-SH / Qwiic)" },
+        "channel_4": { "description": "Porta Esterna MiMO Link 4 (JST-SH / Qwiic)" },
+        "channel_5": { "description": "Porta Esterna MiMO Link 5 (JST-SH / Qwiic)" },
+        "channel_6": { "description": "Porta Esterna MiMO Link 6 (JST-SH / Qwiic)" },
+        "channel_7": { "description": "Porta Esterna MiMO Link 7 (JST-SH / Qwiic)" }
+      }
+    }
+  },
+  "encoders": {
+    "encoder_1_workspace": {
+      "purpose": "Selezione Workspace protetta da click",
+      "clk": { "pin": 29, "kernel_gpio": 74, "chip": "/dev/gpiochip2", "line": 10, "pullup_hw_4k7": true },
+      "dt":  { "pin": 31, "kernel_gpio": 73, "chip": "/dev/gpiochip2", "line": 9,  "pullup_hw_4k7": true },
+      "sw":  { "pin": 33, "kernel_gpio": 76, "chip": "/dev/gpiochip2", "line": 12, "bias": "pull_up" },
+      "gnd_pin": 30
+    },
+    "encoder_2_effects": {
+      "purpose": "Controllo e navigazione Effetti Audio",
+      "clk": { "pin": 32, "kernel_gpio": 112, "chip": "/dev/gpiochip3", "line": 16, "tolerance_3v3": true, "bias": "pull_up" },
+      "dt":  { "pin": 36, "kernel_gpio": 132, "chip": "/dev/gpiochip4", "line": 4,  "bias": "pull_up" },
+      "sw":  { "pin": 38, "kernel_gpio": 134, "chip": "/dev/gpiochip4", "line": 6,  "bias": "pull_up" },
+      "gnd_pin": 34
+    },
+    "encoder_3_instruments": {
+      "purpose": "Controllo e navigazione Strumenti e Generatori",
+      "clk": { "pin": 35, "kernel_gpio": 133, "chip": "/dev/gpiochip4", "line": 5,  "bias": "pull_up" },
+      "dt":  { "pin": 37, "kernel_gpio": 158, "chip": "/dev/gpiochip4", "line": 30, "bias": "pull_up" },
+      "sw":  { "pin": 40, "kernel_gpio": 135, "chip": "/dev/gpiochip4", "line": 7,  "bias": "pull_up" },
+      "gnd_pin": 39
+    }
+  },
+  "pedal_sustain": {
+    "purpose": "Scene Switcher Hands-Free (Scene + 1 in LIVE)",
+    "jack_type": "6.35mm TS Jack",
+    "gpio_pin": 16,
+    "kernel_gpio": 154,
+    "chip": "/dev/gpiochip4",
+    "line": 26,
+    "bias": "pull_up"
+  }
+}
