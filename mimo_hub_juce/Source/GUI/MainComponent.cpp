@@ -796,8 +796,14 @@ bool MainComponent::isGroupEnabled(const juce::String& groupId) const
             {
                 if (grp.id == groupId)
                 {
-                    if (!grp.parentGroup.isEmpty() && !isGroupEnabled(grp.parentGroup))
-                        return false;
+                    if (!grp.parentGroup.isEmpty())
+                    {
+                        for (const auto& pGrp : n.outputGroups)
+                        {
+                            if (pGrp.id == grp.parentGroup && !pGrp.isEnabled)
+                                return false;
+                        }
+                    }
                     return grp.isEnabled;
                 }
             }
@@ -1519,28 +1525,31 @@ void MainComponent::timerCallback()
                 continue;
 
             float modVal = -1.0f;
+            float dspMod = -1.0f;
 
-            // 1. Controlla prima se la sorgente e' un nodo DSP attivo nel grafo audio (LFO, Envelope Follower, ecc.)
-            const float dspMod = audioEngine.getNodeModulationValue(c.sourceNodeId, c.sourcePinId);
-            if (dspMod >= 0.0f)
+            // 1. Identifica il nodo sorgente
+            const CanvasNode* srcNode = nullptr;
+            for (const auto& n : nodes)
             {
-                modVal = dspMod;
-            }
-            else
-            {
-                for (const auto& src : nodes)
+                if (n.id == c.sourceNodeId)
                 {
-                if (src.id != c.sourceNodeId)
-                    continue;
+                    srcNode = &n;
+                    break;
+                }
+            }
 
-                if ((src.isIntegratedMic || src.id == "hw-mic") && isMicRecording)
+            // 2. Moduli Hardware / Sensori diretti (Webcam / Occhio 3D, Microfono PC, Batteria)
+            if (srcNode != nullptr && (srcNode->isIntegratedCamera || srcNode->id == "hw-webcam" || srcNode->id == "hw-eye" ||
+                                       srcNode->isIntegratedMic || srcNode->id == "hw-mic" || srcNode->id == "hw-drum"))
+            {
+                if ((srcNode->isIntegratedMic || srcNode->id == "hw-mic") && isMicRecording)
                 {
                     if (c.sourcePinId == "mod:vel")
                         modVal = realMicVelocity.load();
                     else if (c.sourcePinId == "mod:press")
                         modVal = realMicLevel.load();
                 }
-                else if (src.isIntegratedCamera || src.id == "hw-webcam" || src.id == "hw-eye")
+                else if (srcNode->isIntegratedCamera || srcNode->id == "hw-webcam" || srcNode->id == "hw-eye")
                 {
                     const bool dxOn = isHandEnabled(false);
                     const bool sxOn = isHandEnabled(true);
@@ -1672,12 +1681,18 @@ void MainComponent::timerCallback()
                         }
                     }
                 }
-                break;
             }
-            } // fine blocco else hardware
+            else
+            {
+                // 3. Modulatori DSP interni nel grafo audio (LFO, Follower, ecc.)
+                dspMod = audioEngine.getNodeModulationValue(c.sourceNodeId, c.sourcePinId);
+                if (dspMod >= 0.0f)
+                    modVal = dspMod;
+            }
 
             if (modVal >= 0.0f)
             {
+                modVal = juce::jlimit(0.0f, 1.0f, modVal);
                 if (c.targetPinId == "inst:tone")
                 {
                     // Modulazione diretta di uno Strumento (es. Pitch / Timbro / Trigger dinamico)
@@ -1687,8 +1702,18 @@ void MainComponent::timerCallback()
                 else
                 {
                     const auto paramSpec = c.targetPinId.fromFirstOccurrenceOf("param:", false, false);
-                    const auto blockId = paramSpec.upToFirstOccurrenceOf(".", false, false);
-                    const auto paramKey = paramSpec.fromFirstOccurrenceOf(".", false, false);
+                    juce::String blockId;
+                    juce::String paramKey;
+                    if (paramSpec.contains("."))
+                    {
+                        blockId = paramSpec.upToFirstOccurrenceOf(".", false, false);
+                        paramKey = paramSpec.fromFirstOccurrenceOf(".", false, false);
+                    }
+                    else
+                    {
+                        blockId = "";
+                        paramKey = paramSpec;
+                    }
 
                     for (auto& dst : nodes)
                     {
@@ -1701,8 +1726,8 @@ void MainComponent::timerCallback()
                             if (dp.key == paramKey)
                             {
                                 const float curNorm = dp.getNormalized();
-                                const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.40f + modVal * 0.60f);
-                                if (std::abs(nextNorm - curNorm) > 0.001f)
+                                const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.35f + modVal * 0.65f);
+                                if (std::abs(nextNorm - curNorm) > 0.0005f)
                                 {
                                     dp.setFromNormalized(nextNorm);
                                     audioEngine.setModulation(dst.id, dp.key, nextNorm);
@@ -1714,15 +1739,15 @@ void MainComponent::timerCallback()
                         // Se e' un NestedEffect con innerBlocks
                         for (auto& b : dst.innerBlocks)
                         {
-                            if (b.id != blockId && blockId != "direct" && !blockId.isEmpty())
+                            if (!blockId.isEmpty() && blockId != "direct" && b.id != blockId)
                                 continue;
                             for (auto& p : b.params)
                             {
                                 if (p.key == paramKey)
                                 {
                                     const float curNorm = p.getNormalized();
-                                    const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.40f + modVal * 0.60f);
-                                    if (std::abs(nextNorm - curNorm) > 0.001f)
+                                    const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.35f + modVal * 0.65f);
+                                    if (std::abs(nextNorm - curNorm) > 0.0005f)
                                     {
                                         p.setFromNormalized(nextNorm);
                                         audioEngine.setModulation(dst.id, p.key, nextNorm);
@@ -3856,7 +3881,7 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                                                 g.drawRoundedRectangle(soundBtn, 3.0f, 0.8f);
                                                 g.setColour(MiMOLookAndFeel::crayonOchre);
                                                 g.setFont(juce::Font(8.0f, juce::Font::bold));
-                                                g.drawText(juce::String(juce::CharPointer_UTF8("\xe2\x9e\x94 ")) + connectedInstName, soundBtn.toNearestInt(), juce::Justification::centred);
+                                                g.drawText("-> " + connectedInstName, soundBtn.toNearestInt(), juce::Justification::centred);
                                             }
                                             else
                                             {
@@ -3971,8 +3996,13 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                                             {
                                                 if (c.sourceNodeId == node.id && c.sourcePinId == item.pinId)
                                                 {
+                                                    if (c.targetPinId == "inst:tone")
+                                                    {
+                                                        connDest = "Timbro";
+                                                        break;
+                                                    }
                                                     const auto paramSpec = c.targetPinId.fromFirstOccurrenceOf("param:", false, false);
-                                                    const auto pKey = paramSpec.fromFirstOccurrenceOf(".", false, false);
+                                                    const auto pKey = paramSpec.contains(".") ? paramSpec.fromFirstOccurrenceOf(".", false, false) : paramSpec;
                                                     for (const auto& on : nodes)
                                                     {
                                                         if (on.id == c.targetNodeId)
@@ -4016,7 +4046,7 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                                                 const float tagX = row.getX() + 106.0f;
                                                 const float tagW = gaugeX - tagX - 2.0f;
                                                 if (tagW > 18.0f)
-                                                    g.drawText(juce::String(juce::CharPointer_UTF8("\xe2\x9e\x94 ")) + connDest,
+                                                    g.drawText("-> " + connDest,
                                                                static_cast<int>(tagX), static_cast<int>(row.getY()), static_cast<int>(tagW), static_cast<int>(row.getHeight()),
                                                                juce::Justification::centredRight, true);
                                             }
@@ -4099,8 +4129,13 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                                     {
                                         if (c.sourceNodeId == node.id && c.sourcePinId == item.pinId)
                                         {
+                                            if (c.targetPinId == "inst:tone")
+                                            {
+                                                connDest = "Timbro";
+                                                break;
+                                            }
                                             const auto paramSpec = c.targetPinId.fromFirstOccurrenceOf("param:", false, false);
-                                            const auto pKey = paramSpec.fromFirstOccurrenceOf(".", false, false);
+                                            const auto pKey = paramSpec.contains(".") ? paramSpec.fromFirstOccurrenceOf(".", false, false) : paramSpec;
                                             for (const auto& on : nodes)
                                             {
                                                 if (on.id == c.targetNodeId)
@@ -4108,6 +4143,16 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                                                     for (const auto& dp : on.directParams)
                                                     {
                                                         if (dp.key == pKey) { connDest = dp.label; break; }
+                                                    }
+                                                    if (connDest.isEmpty())
+                                                    {
+                                                        for (const auto& b : on.innerBlocks)
+                                                        {
+                                                            for (const auto& ip : b.params)
+                                                            {
+                                                                if (ip.key == pKey) { connDest = ip.label; break; }
+                                                            }
+                                                        }
                                                     }
                                                     if (connDest.isEmpty()) connDest = on.label;
                                                     break;
@@ -4124,7 +4169,7 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                                         const float tagX = row.getX() + 95.0f;
                                         const float tagW = gaugeX - tagX - 2.0f;
                                         if (tagW > 16.0f)
-                                            g.drawText(juce::String(juce::CharPointer_UTF8("\xe2\x9e\x94 ")) + connDest,
+                                            g.drawText("-> " + connDest,
                                                        static_cast<int>(tagX), static_cast<int>(row.getY()), static_cast<int>(tagW), static_cast<int>(row.getHeight()),
                                                        juce::Justification::centredRight, true);
                                     }
@@ -4534,7 +4579,7 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                 g.drawText("Preset: " + juce::String(presetNames[node.drumPresetIdx % 4]) + " ▾", presetBar.toNearestInt(), juce::Justification::centred);
 
                 // 4 Tab Voci: Cassa | Rullante | Hat | Tom
-                static const char* voiceNames[] = { "🥁 Cassa", "🎯 Rull.", "🥢 Hat", "🪘 Tom" };
+                static const char* voiceNames[] = { "Cassa", "Rull.", "Hat", "Tom" };
                 const float tabW = (box.getWidth() - 100.0f) / 4.0f;
                 for (int v = 0; v < 4; ++v)
                 {
@@ -4553,7 +4598,7 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                 g.drawText(node.subtitle, static_cast<int>(box.getX() + 14), static_cast<int>(box.getY() + 29), static_cast<int>(box.getWidth() - 50), 14, juce::Justification::centredLeft);
 
                 // 4 Pulsanti Quick-Test / Audition
-                static const char* voiceNames[] = { "🥁 Cassa", "🎯 Rullante", "🥢 Hat", "🪘 Tom" };
+                static const char* voiceNames[] = { "Cassa", "Rullante", "Hi-Hat", "Tom" };
                 const float btnW = (box.getWidth() - 96.0f) / 4.0f;
                 for (int v = 0; v < 4; ++v)
                 {
@@ -6195,21 +6240,29 @@ void MainComponent::mouseMove(const juce::MouseEvent& e)
         const auto worldPt = screenToWorld(pt);
         bool foundPin = false;
 
+        const PinHit* bestHoverPin = nullptr;
+        float bestHoverDist = 22.0f;
         for (const auto& pin : collectAllPins())
         {
-            if (pin.worldPos.getDistanceFrom(worldPt) <= 22.0f)
+            const float dist = pin.worldPos.getDistanceFrom(worldPt);
+            if (dist <= bestHoverDist)
             {
-                if (hoveredPinNodeId != pin.nodeId || hoveredPinId != pin.pinId)
-                {
-                    hoveredPinNodeId = pin.nodeId;
-                    hoveredPinId = pin.pinId;
-                    hoveredPinPos = pin.worldPos;
-                    hasHoveredPin = true;
-                    setMouseCursor(juce::MouseCursor::PointingHandCursor);
-                    repaint();
-                }
-                foundPin = true;
-                break;
+                bestHoverDist = dist;
+                bestHoverPin = &pin;
+            }
+        }
+
+        if (bestHoverPin != nullptr)
+        {
+            foundPin = true;
+            if (hoveredPinNodeId != bestHoverPin->nodeId || hoveredPinId != bestHoverPin->pinId)
+            {
+                hoveredPinNodeId = bestHoverPin->nodeId;
+                hoveredPinId = bestHoverPin->pinId;
+                hoveredPinPos = bestHoverPin->worldPos;
+                hasHoveredPin = true;
+                setMouseCursor(juce::MouseCursor::PointingHandCursor);
+                repaint();
             }
         }
 
@@ -7084,91 +7137,102 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
     }
 
     // 7a. Click su un Pin per collegare, staccare o selezionare un Cavo
-    for (const auto& pin : collectAllPins())
+    const PinHit* bestClickedPin = nullptr;
+    float bestPinDist = 15.0f;
+    const auto allPins = collectAllPins();
+    for (const auto& pin : allPins)
     {
-        if (pin.worldPos.getDistanceFrom(worldPt) <= 13.0f)
+        const float d = pin.worldPos.getDistanceFrom(worldPt);
+        if (d <= bestPinDist)
         {
-            // Click destro sul pin: scollega e cancella subito tutti i cavi attaccati
-            if (e.mods.isRightButtonDown())
-            {
-                cables.erase(std::remove_if(cables.begin(), cables.end(),
-                    [&](const CanvasCable& c) {
-                        return (c.sourceNodeId == pin.nodeId && c.sourcePinId == pin.pinId) ||
-                               (c.targetNodeId == pin.nodeId && c.targetPinId == pin.pinId);
-                    }), cables.end());
-                selectedPinNodeId.clear();
-                selectedPinId.clear();
-                syncAudioRoutes();
-                repaint();
-                return;
-            }
+            bestPinDist = d;
+            bestClickedPin = &pin;
+        }
+    }
 
-            // Seleziona questo pin per eventuale cancellazione rapida con [CANC]
-            selectedPinNodeId = pin.nodeId;
-            selectedPinId = pin.pinId;
-            selectedCableId.clear();
+    if (bestClickedPin != nullptr)
+    {
+        const auto& pin = *bestClickedPin;
+        // Click destro sul pin: scollega e cancella subito tutti i cavi attaccati
+        if (e.mods.isRightButtonDown())
+        {
+            cables.erase(std::remove_if(cables.begin(), cables.end(),
+                [&](const CanvasCable& c) {
+                    return (c.sourceNodeId == pin.nodeId && c.sourcePinId == pin.pinId) ||
+                           (c.targetNodeId == pin.nodeId && c.targetPinId == pin.pinId);
+                }), cables.end());
+            selectedPinNodeId.clear();
+            selectedPinId.clear();
+            syncAudioRoutes();
+            repaint();
+            return;
+        }
 
-            // Controlla se questo pin ha già un cavo collegato:
-            // Regola: gli OUTPUT possono avere cavi multipli (fan-out illimitato) e creano SEMPRE un nuovo cavo.
-            // Solo dagli INPUT dei moduli stacchiamo il cavo preesistente per poterlo riposizionare o cancellare nel vuoto!
-            int foundCableIdx = -1;
-            if (!pin.isOutput)
+        // Seleziona questo pin per eventuale cancellazione rapida con [CANC]
+        selectedPinNodeId = pin.nodeId;
+        selectedPinId = pin.pinId;
+        selectedCableId.clear();
+
+        // Controlla se questo pin ha già un cavo collegato:
+        // Regola: gli OUTPUT possono avere cavi multipli (fan-out illimitato) e creano SEMPRE un nuovo cavo.
+        // Solo dagli INPUT dei moduli stacchiamo il cavo preesistente per poterlo riposizionare o cancellare nel vuoto!
+        int foundCableIdx = -1;
+        if (!pin.isOutput)
+        {
+            for (int ci = static_cast<int>(cables.size()) - 1; ci >= 0; --ci)
             {
-                for (int ci = static_cast<int>(cables.size()) - 1; ci >= 0; --ci)
+                const auto& c = cables[static_cast<size_t>(ci)];
+                if (c.targetNodeId == pin.nodeId && c.targetPinId == pin.pinId)
                 {
-                    const auto& c = cables[static_cast<size_t>(ci)];
-                    if (c.targetNodeId == pin.nodeId && c.targetPinId == pin.pinId)
-                    {
-                        foundCableIdx = ci;
-                        break;
-                    }
+                    foundCableIdx = ci;
+                    break;
                 }
             }
+        }
 
-            if (foundCableIdx >= 0)
-            {
-                // Stacca il cavo dall'input e permetti di trascinarlo per ricollegarlo altrove o cancellarlo nel vuoto
-                unhookedOriginalCable = cables[static_cast<size_t>(foundCableIdx)];
-                isUnhookingExistingCable = true;
-                unhookDragStartWorld = pin.worldPos;
+        if (foundCableIdx >= 0)
+        {
+            // Stacca il cavo dall'input e permetti di trascinarlo per ricollegarlo altrove o cancellarlo nel vuoto
+            unhookedOriginalCable = cables[static_cast<size_t>(foundCableIdx)];
+            isUnhookingExistingCable = true;
+            unhookDragStartWorld = pin.worldPos;
 
-                cableSourceNodeId = unhookedOriginalCable.sourceNodeId;
-                cableSourcePinId = unhookedOriginalCable.sourcePinId;
-                cableSourceIsOutput = true;
+            cableSourceNodeId = unhookedOriginalCable.sourceNodeId;
+            cableSourcePinId = unhookedOriginalCable.sourcePinId;
+            cableSourceIsOutput = true;
 
-                cableSourceIsMod = unhookedOriginalCable.isModulation;
-                cableSourceIsTrigger = unhookedOriginalCable.isTrigger || (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond);
-                cableSourceShape = pin.shapeType;
-                cableSourceColour = unhookedOriginalCable.colour;
-                cableStartWorld = getPinWorldPos(cableSourceNodeId, cableSourcePinId);
-                cableCurrentWorld = worldPt;
-                cableFreehandWorld.clear();
-                dragMode = DragMode::DrawCable;
+            cableSourceIsMod = unhookedOriginalCable.isModulation;
+            cableSourceIsTrigger = unhookedOriginalCable.isTrigger || (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond);
+            cableSourceShape = pin.shapeType;
+            cableSourceColour = unhookedOriginalCable.colour;
+            cableStartWorld = getPinWorldPos(cableSourceNodeId, cableSourcePinId);
+            cableCurrentWorld = worldPt;
+            cableFreehandWorld.clear();
+            dragMode = DragMode::DrawCable;
 
-                cables.erase(cables.begin() + foundCableIdx);
-                syncAudioRoutes();
-                repaint();
-                return;
-            }
-            else
-            {
-                // Inizia il disegno di un nuovo cavo
-                isUnhookingExistingCable = false;
-                dragMode = DragMode::DrawCable;
-                cableSourceNodeId = pin.nodeId;
-                cableSourcePinId = pin.pinId;
-                cableSourceIsOutput = pin.isOutput;
-                cableSourceIsMod = pin.isMod;
-                cableSourceIsTrigger = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
-                cableSourceShape = pin.shapeType;
-                cableSourceColour = pin.colour;
-                cableStartWorld = pin.worldPos;
-                cableCurrentWorld = worldPt;
-                cableFreehandWorld.clear();
-                cableFreehandWorld.push_back(pin.worldPos);
-                repaint();
-                return;
-            }
+            cables.erase(cables.begin() + foundCableIdx);
+            syncAudioRoutes();
+            repaint();
+            return;
+        }
+        else
+        {
+            // Inizia il disegno di un nuovo cavo
+            isUnhookingExistingCable = false;
+            dragMode = DragMode::DrawCable;
+            cableSourceNodeId = pin.nodeId;
+            cableSourcePinId = pin.pinId;
+            cableSourceIsOutput = pin.isOutput;
+            cableSourceIsMod = pin.isMod;
+            cableSourceIsTrigger = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
+            cableSourceShape = pin.shapeType;
+            cableSourceColour = pin.colour;
+            cableStartWorld = pin.worldPos;
+            cableCurrentWorld = worldPt;
+            cableFreehandWorld.clear();
+            cableFreehandWorld.push_back(pin.worldPos);
+            repaint();
+            return;
         }
     }
 
@@ -7822,6 +7886,8 @@ void MainComponent::mouseDrag(const juce::MouseEvent& e)
         cableCurrentWorld = screenToWorld(pt);
 
         // Snap magnetico verso la presa compatibile per tipo segnale
+        const PinHit* snapPin = nullptr;
+        float snapDist = 28.0f;
         for (const auto& pin : collectAllPins())
         {
             const bool validDir = (pin.isOutput != cableSourceIsOutput);
@@ -7830,13 +7896,16 @@ void MainComponent::mouseDrag(const juce::MouseEvent& e)
 
             if (validDir && pin.nodeId != cableSourceNodeId && typeCompatible)
             {
-                if (pin.worldPos.getDistanceFrom(cableCurrentWorld) <= 28.0f)
+                const float d = pin.worldPos.getDistanceFrom(cableCurrentWorld);
+                if (d <= snapDist)
                 {
-                    cableCurrentWorld = pin.worldPos;
-                    break;
+                    snapDist = d;
+                    snapPin = &pin;
                 }
             }
         }
+        if (snapPin != nullptr)
+            cableCurrentWorld = snapPin->worldPos;
 
         if (cableFreehandWorld.empty() || cableFreehandWorld.back().getDistanceFrom(cableCurrentWorld) >= 10.0f)
             cableFreehandWorld.push_back(cableCurrentWorld);
@@ -7902,54 +7971,67 @@ void MainComponent::mouseUp(const juce::MouseEvent& e)
     if (dragMode == DragMode::DrawCable)
     {
         bool connected = false;
-        for (const auto& pin : collectAllPins())
+        const PinHit* bestPin = nullptr;
+        float bestDist = 32.0f;
+        const auto allPins = collectAllPins();
+        for (const auto& pin : allPins)
         {
             const bool validDir = (pin.isOutput != cableSourceIsOutput);
             const bool pinIsTrig = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
             const bool typeCompatible = cableSourceIsTrigger ? pinIsTrig : (cableSourceIsMod ? pin.isMod : (!pin.isMod && !pinIsTrig));
 
-            if (validDir && pin.nodeId != cableSourceNodeId && typeCompatible && pin.worldPos.getDistanceFrom(worldPt) <= 30.0f)
+            if (validDir && pin.nodeId != cableSourceNodeId && typeCompatible)
             {
-                const auto& srcNode = cableSourceIsOutput ? cableSourceNodeId : pin.nodeId;
-                const auto& srcPin  = cableSourceIsOutput ? cableSourcePinId  : pin.pinId;
-                const auto& dstNode = cableSourceIsOutput ? pin.nodeId        : cableSourceNodeId;
-                const auto& dstPin  = cableSourceIsOutput ? pin.pinId         : cableSourcePinId;
-                const bool isMod = cableSourceIsMod || pin.isMod;
-                const bool isTrig = cableSourceIsTrigger || pinIsTrig;
-                const juce::Colour cableCol = isTrig ? juce::Colour(0xFFFF7A18) : (isMod ? (cableSourceIsOutput ? cableSourceColour : pin.colour) : MiMOLookAndFeel::fountainInk);
-
-                // Regola: l'input (dstNode, dstPin) riceve al massimo un solo cavo.
-                // Se c'era già un cavo su questo ingresso, viene sostituito.
-                // L'output (srcNode, srcPin) può invece avere cavi multipli (fan-out illimitato verso più moduli)!
-                cables.erase(std::remove_if(cables.begin(), cables.end(),
-                    [&](const CanvasCable& c) {
-                        // Cancella qualsiasi cavo preesistente collegato all'ingresso di destinazione
-                        if (c.targetNodeId == dstNode && c.targetPinId == dstPin)
-                            return true;
-                        // Prevenzione cavi identici duplicati tra la stessa coppia di pin
-                        if (c.sourceNodeId == srcNode && c.sourcePinId == srcPin &&
-                            c.targetNodeId == dstNode && c.targetPinId == dstPin)
-                            return true;
-                        // Prevenzione loop inversi
-                        if (c.sourceNodeId == dstNode && c.sourcePinId == dstPin &&
-                            c.targetNodeId == srcNode && c.targetPinId == srcPin)
-                            return true;
-                        return false;
-                    }),
-                    cables.end());
-
-                cables.push_back({
-                    "c-" + juce::String(juce::Time::getMillisecondCounter()) + "-" + juce::String(rand() % 1000),
-                    srcNode, srcPin,
-                    dstNode, dstPin,
-                    isMod, cableCol, {},
-                    isTrig
-                });
-
-                connected = true;
-                syncAudioRoutes();
-                break;
+                const float dist = pin.worldPos.getDistanceFrom(worldPt);
+                if (dist <= bestDist)
+                {
+                    bestDist = dist;
+                    bestPin = &pin;
+                }
             }
+        }
+
+        if (bestPin != nullptr)
+        {
+            const auto& pin = *bestPin;
+            const auto& srcNode = cableSourceIsOutput ? cableSourceNodeId : pin.nodeId;
+            const auto& srcPin  = cableSourceIsOutput ? cableSourcePinId  : pin.pinId;
+            const auto& dstNode = cableSourceIsOutput ? pin.nodeId        : cableSourceNodeId;
+            const auto& dstPin  = cableSourceIsOutput ? pin.pinId         : cableSourcePinId;
+            const bool isMod = cableSourceIsMod || pin.isMod;
+            const bool isTrig = cableSourceIsTrigger || (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
+            const juce::Colour cableCol = isTrig ? juce::Colour(0xFFFF7A18) : (isMod ? (cableSourceIsOutput ? cableSourceColour : pin.colour) : MiMOLookAndFeel::fountainInk);
+
+            // Regola: l'input (dstNode, dstPin) riceve al massimo un solo cavo.
+            // Se c'era già un cavo su questo ingresso, viene sostituito.
+            // L'output (srcNode, srcPin) può invece avere cavi multipli (fan-out illimitato verso più moduli)!
+            cables.erase(std::remove_if(cables.begin(), cables.end(),
+                [&](const CanvasCable& c) {
+                    // Cancella qualsiasi cavo preesistente collegato all'ingresso di destinazione
+                    if (c.targetNodeId == dstNode && c.targetPinId == dstPin)
+                        return true;
+                    // Prevenzione cavi identici duplicati tra la stessa coppia di pin
+                    if (c.sourceNodeId == srcNode && c.sourcePinId == srcPin &&
+                        c.targetNodeId == dstNode && c.targetPinId == dstPin)
+                        return true;
+                    // Prevenzione loop inversi
+                    if (c.sourceNodeId == dstNode && c.sourcePinId == dstPin &&
+                        c.targetNodeId == srcNode && c.targetPinId == srcPin)
+                        return true;
+                    return false;
+                }),
+                cables.end());
+
+            cables.push_back({
+                "c-" + juce::String(juce::Time::getMillisecondCounter()) + "-" + juce::String(rand() % 1000),
+                srcNode, srcPin,
+                dstNode, dstPin,
+                isMod, cableCol, {},
+                isTrig
+            });
+
+            connected = true;
+            syncAudioRoutes();
         }
 
         // Se non è stato collegato a nessun pin ed era un cavo preesistente staccato:

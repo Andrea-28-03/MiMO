@@ -291,7 +291,7 @@ public:
             {
                 if (node->processor != nullptr)
                     return node->processor->getModulationValue(pinId);
-                return node->realtimePeak.load();
+                return -1.0f;
             }
         }
         return -1.0f;
