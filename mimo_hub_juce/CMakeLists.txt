@@ -41,9 +41,12 @@ target_sources(MiMOHub PRIVATE
     Source/Audio/Modules/Effects/SoftSaturator.h
     Source/Audio/Modules/Effects/StereoTapeDelay.h
     Source/Audio/Modules/Effects/LushReverb.h
+    Source/Audio/Modules/Effects/BBDChorus.h
+    Source/Audio/Modules/Effects/MoogLadderFilter.h
     Source/Audio/Modules/Utilities/ScaleLock.h
     Source/Audio/Modules/Utilities/EnvelopeFollower.h
     Source/Audio/Modules/Utilities/TapeLooperProcessor.h
+    Source/Audio/Modules/Utilities/MultiWaveLFO.h
     Source/GUI/MiMOLookAndFeel.h
     Source/GUI/MiMOLookAndFeel.cpp
     Source/GUI/CanvasGraph.h

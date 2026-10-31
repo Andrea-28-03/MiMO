@@ -1667,7 +1667,8 @@ void MainComponent::initCatalogs()
     utilityCatalog = {
         { "ut-scale-lock",    "Armonia & Scale",  "Smart Scale Lock",  "Faust", "Quantizzatore tonale anti-stonatura", MiMOLookAndFeel::crayonMint,   false, {} },
         { "ut-looper-tape",   "Performance",      "Tape Looper",       "Faust", "1-Button Looper a nastro (Sound-on-Sound)", MiMOLookAndFeel::crayonCherry, false, {} },
-        { "mod-env-follower", "Modulazione",      "Envelope Follower", "Faust", "Seguitore dinamico inviluppo audio", MiMOLookAndFeel::crayonOchre,  false, {} }
+        { "mod-env-follower", "Modulazione",      "Envelope Follower", "Faust", "Seguitore dinamico inviluppo audio", MiMOLookAndFeel::crayonOchre,  false, {} },
+        { "mod-lfo-poly",     "Modulazione",      "LFO Multi-Onda",    "Faust", "Oscillatore CV continuo multi-forma", MiMOLookAndFeel::crayonPeach,  false, {} }
     };
 
     // Catalogo Effetti Standard V2 (Mix Dry/Wet e Volume su TUTTI gli effetti)
@@ -1749,6 +1750,47 @@ void MainComponent::initCatalogs()
                 { "vol", "Volume", 0.0f, 150.0f, 100.0f, 100.0f, " %", true } } }
         };
         effectCatalog.push_back(rev);
+    }
+
+    {
+        CatalogItem moog;
+        moog.id = "fx-moog-ladder";
+        moog.category = "Filtri";
+        moog.name = "Moog Ladder 24dB";
+        moog.engine = "Faust";
+        moog.hint = "Filtro analogico a scala con transistor drive";
+        moog.colour = MiMOLookAndFeel::crayonOchre;
+        moog.isEffect = true;
+        moog.templateBlocks = {
+            { "b0", "Ladder", "process = moog_ladder(cutoff, res, drive);", MiMOLookAndFeel::crayonOchre, false, { 320.0f, 170.0f },
+              { { "cutoff", "Cutoff", 20.0f, 18000.0f, 1200.0f, 1200.0f, " Hz", true },
+                { "res",    "Risonanza", 0.0f, 100.0f, 45.0f, 45.0f, " %", true } } },
+            { "b1", "Drive & Vol", "process = _ * vol;", MiMOLookAndFeel::crayonPeach, false, { 620.0f, 170.0f },
+              { { "drive", "Drive", 0.0f, 24.0f, 6.0f, 6.0f, " dB", true },
+                { "mix",   "Mix",   0.0f, 100.0f, 100.0f, 100.0f, " %", true },
+                { "vol",   "Volume", 0.0f, 150.0f, 100.0f, 100.0f, " %", true } } }
+        };
+        effectCatalog.push_back(moog);
+    }
+
+    {
+        CatalogItem chorus;
+        chorus.id = "fx-chorus-bbd";
+        chorus.category = "Modulazione";
+        chorus.name = "Chorus BBD Analogico";
+        chorus.engine = "Faust";
+        chorus.hint = "Stereo ensemble a ritardo variabile vintage";
+        chorus.colour = MiMOLookAndFeel::crayonSage;
+        chorus.isEffect = true;
+        chorus.templateBlocks = {
+            { "b0", "BBD Ensemble", "process = bbd_chorus(rate, depth);", MiMOLookAndFeel::crayonSage, false, { 320.0f, 170.0f },
+              { { "rate",  "Velocita", 0.1f, 8.0f, 1.25f, 1.25f, " Hz", true },
+                { "depth", "Profond.", 0.0f, 100.0f, 65.0f, 65.0f, " %", true } } },
+            { "b1", "Mix & Vol", "process = _ * vol;", MiMOLookAndFeel::crayonMint, false, { 620.0f, 170.0f },
+              { { "mix", "Mix", 0.0f, 100.0f, 50.0f, 50.0f, " %", true },
+                { "vol", "Volume", 0.0f, 150.0f, 100.0f, 100.0f, " %", true } } }
+        };
+        effectCatalog.push_back(chorus);
     }
 }
 
@@ -2608,8 +2650,37 @@ void MainComponent::toggleDarkMode()
 juce::Rectangle<float> MainComponent::getIntegratedHeaderBounds() const
 {
     const float x = static_cast<float>(getWidth() - 300);
-    const float y = 16.0f + 32.0f + 10.0f; // Subito sotto ai controlli in alto
+    const float y = 58.0f - sidebarScrollY; // Offset dinamico di scorrimento verticale
     return { x, y, 284.0f, 32.0f };
+}
+
+float MainComponent::getSidebarContentHeight() const
+{
+    float h = 0.0f;
+    // 0. Moduli integrati
+    h += 32.0f + 4.0f + (integratedSectionOpen ? (cameraSettingsOpen ? 300.0f : 156.0f) : 0.0f) + 10.0f;
+    // 1. Strumenti
+    h += 32.0f + 4.0f + (instrumentsSectionOpen ? (static_cast<float>(instrumentCatalog.size()) * 40.0f + 8.0f) : 0.0f) + 10.0f;
+    // 2. Effetti
+    h += 32.0f + 4.0f + (effectsSectionOpen ? (static_cast<float>(effectCatalog.size()) * 42.0f + 8.0f) : 0.0f) + 10.0f;
+    // 3. Utility
+    h += 32.0f + 4.0f + (utilitiesSectionOpen ? (static_cast<float>(utilityCatalog.size()) * 40.0f + 8.0f) : 0.0f) + 24.0f;
+    return h;
+}
+
+float MainComponent::getSidebarMaxScroll() const
+{
+    const float viewportH = static_cast<float>(getHeight()) - 58.0f - 16.0f;
+    return std::max(0.0f, getSidebarContentHeight() - viewportH);
+}
+
+juce::Rectangle<float> MainComponent::getSidebarViewportBounds() const
+{
+    const float x = static_cast<float>(getWidth() - 308);
+    const float y = 54.0f;
+    const float w = 308.0f;
+    const float h = std::max(10.0f, static_cast<float>(getHeight()) - 54.0f);
+    return { x, y, w, h };
 }
 
 juce::Rectangle<float> MainComponent::getIntegratedBodyBounds() const
@@ -4400,6 +4471,13 @@ void MainComponent::paintRightSidebar(juce::Graphics& g)
     }
 
     // =========================================================================
+    // AREA SCROLLABILE VERTICALE (SEZIONI 0, 1, 2, 3)
+    // =========================================================================
+    {
+        juce::Graphics::ScopedSaveState ss(g);
+        g.reduceClipRegion(getSidebarViewportBounds().toNearestInt());
+
+    // =========================================================================
     // 0. SEZIONE MODULI INTEGRATI (PC / Laptop)
     // =========================================================================
     const auto integHeader = getIntegratedHeaderBounds();
@@ -4860,6 +4938,31 @@ void MainComponent::paintRightSidebar(juce::Graphics& g)
             g.setFont(juce::Font(10.5f, juce::Font::bold));
             g.drawText("[" + ut.engine + "]", static_cast<int>(row.getRight() - 56), static_cast<int>(y + 8), 48, 18, juce::Justification::centredRight);
         }
+    }
+    } // Fine blocco con ScopedSaveState e Scissoring Viewport
+
+    // =========================================================================
+    // INDICATORE BARRA DI SCORRIMENTO VERTICALE PASTELLO
+    // =========================================================================
+    const float maxScroll = getSidebarMaxScroll();
+    if (maxScroll > 0.0f)
+    {
+        const float trackX = static_cast<float>(getWidth() - 6);
+        const float trackY = 56.0f;
+        const float trackH = std::max(20.0f, static_cast<float>(getHeight() - 72));
+
+        g.setColour(MiMOLookAndFeel::paperCard.withAlpha(0.40f));
+        g.fillRoundedRectangle(trackX, trackY, 4.0f, trackH, 2.0f);
+
+        const float visibleRatio = juce::jlimit(0.12f, 0.90f, trackH / (trackH + maxScroll));
+        const float thumbH = std::max(24.0f, trackH * visibleRatio);
+        const float scrollNorm = juce::jlimit(0.0f, 1.0f, sidebarScrollY / maxScroll);
+        const float thumbY = trackY + (trackH - thumbH) * scrollNorm;
+
+        g.setColour(MiMOLookAndFeel::crayonOchre.withAlpha(0.75f));
+        g.fillRoundedRectangle(trackX, thumbY, 4.0f, thumbH, 2.0f);
+        g.setColour(MiMOLookAndFeel::fountainInk.withAlpha(0.60f));
+        g.drawRoundedRectangle(trackX, thumbY, 4.0f, thumbH, 2.0f, 1.0f);
     }
 
     // 4. Popup Impostazioni (aperto cliccando sull'icona dell'ingranaggio)
@@ -6213,6 +6316,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
         if (getIntegratedHeaderBounds().contains(pt))
         {
             integratedSectionOpen = !integratedSectionOpen;
+            sidebarScrollY = juce::jlimit(0.0f, getSidebarMaxScroll(), sidebarScrollY);
             repaint();
             return;
         }
@@ -7739,6 +7843,19 @@ void MainComponent::mouseDoubleClick(const juce::MouseEvent& e)
 
 void MainComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
+    // 0. Scorrimento verticale della Sidebar Destra (se il puntatore si trova sopra di essa)
+    if (sidebarOpen && e.position.x >= static_cast<float>(getWidth() - 308))
+    {
+        const float maxScroll = getSidebarMaxScroll();
+        if (maxScroll > 0.0f)
+        {
+            const float wheelDelta = (std::abs(wheel.deltaY) < 0.35f) ? (wheel.deltaY * 120.0f) : (wheel.deltaY * 45.0f);
+            sidebarScrollY = juce::jlimit(0.0f, maxScroll, sidebarScrollY - wheelDelta);
+            repaint();
+            return;
+        }
+    }
+
     if (activeTab != ActiveTab::Studio || expandedNodeId.isNotEmpty() || hasPendingPolaroid)
         return;
 

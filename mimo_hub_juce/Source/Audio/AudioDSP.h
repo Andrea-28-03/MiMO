@@ -19,8 +19,11 @@
 #include "Modules/Effects/SoftSaturator.h"
 #include "Modules/Effects/StereoTapeDelay.h"
 #include "Modules/Effects/LushReverb.h"
+#include "Modules/Effects/BBDChorus.h"
+#include "Modules/Effects/MoogLadderFilter.h"
 
 // Moduli Modulatori & Utility (Utilities & CV)
 #include "Modules/Utilities/ScaleLock.h"
 #include "Modules/Utilities/EnvelopeFollower.h"
 #include "Modules/Utilities/TapeLooperProcessor.h"
+#include "Modules/Utilities/MultiWaveLFO.h"

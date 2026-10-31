@@ -356,6 +356,7 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
             const bool isScale = (node.id.containsIgnoreCase("scale") || node.id.containsIgnoreCase("quantiz"));
             const bool isFollower = (node.id.containsIgnoreCase("follower") || node.id.containsIgnoreCase("env"));
             const bool isLooper = (node.id.containsIgnoreCase("looper") || node.id.containsIgnoreCase("tape_loop"));
+            const bool isLfo = (node.id.containsIgnoreCase("lfo") || node.id.containsIgnoreCase("mod_lfo"));
 
             if (isScale)
             {
@@ -393,6 +394,13 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
                 pins.push_back({ node.id, "audio:out", true, false, MiMOLookAndFeel::fountainInk,
                                  { node.pos.x + node.size.x, node.pos.y + 28.0f }, { 1.0f, 0.0f },
                                  MiMOLookAndFeel::PinShapeType::AudioCircle });
+            }
+            else if (isLfo)
+            {
+                // Modulazione Out (LFO CV oscillante continuo) -> Triangolo a destra
+                pins.push_back({ node.id, "mod:out", true, true, MiMOLookAndFeel::crayonPeach,
+                                 { node.pos.x + node.size.x, node.pos.y + 36.0f }, { 1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::ModulationTri });
             }
             else
             {
@@ -624,6 +632,14 @@ CanvasNode CanvasGraphHelper::createInstrumentNodeFromCatalog(const CatalogItem&
             { "attack",  "Attacco",  1.0f, 100.0f, 10.0f, 10.0f, " ms", true },
             { "release", "Rilascio", 10.0f, 800.0f, 120.0f, 120.0f, " ms", true },
             { "gain",    "Sensib.",  0.2f, 5.0f, 1.0f, 1.0f, " x", true }
+        };
+    }
+    else if (item.id.containsIgnoreCase("lfo") || item.id.containsIgnoreCase("mod_lfo"))
+    {
+        node.directParams = {
+            { "rate",  "Velocita", 0.05f, 20.0f, 1.5f, 1.5f, " Hz", true },
+            { "wave",  "Forma",    0.0f, 3.0f, 0.0f, 0.0f, "",      true },
+            { "depth", "Ampiezza", 0.0f, 100.0f, 80.0f, 80.0f, " %", true }
         };
     }
     else // Synth VA

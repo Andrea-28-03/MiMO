@@ -771,6 +771,10 @@ private:
         // Effetti
         if (full.contains("saturaz") || full.contains("drive") || full.contains("soft") || full.contains("overdrive"))
             return std::make_unique<dsp::SoftSaturatorNode>();
+        if (full.contains("moog") || full.contains("ladder"))
+            return std::make_unique<dsp::MoogLadderNode>();
+        if (full.contains("chorus") || full.contains("bbd") || full.contains("ensemble"))
+            return std::make_unique<dsp::BBDChorusNode>();
         if (full.contains("filtro") || full.contains("filter") || full.contains("svf") || full.contains("naif"))
             return std::make_unique<dsp::SVFFilterNode>();
         if (full.contains("eco") || full.contains("delay") || full.contains("nastro"))
@@ -779,6 +783,8 @@ private:
             return std::make_unique<dsp::LushReverb>();
 
         // Utility
+        if (full.contains("lfo") || full.contains("mod_lfo"))
+            return std::make_unique<dsp::MultiWaveLFONode>();
         if (full.contains("scale") || full.contains("quantiz"))
             return std::make_unique<dsp::ScaleLock>();
         if (full.contains("follower") || full.contains("env"))

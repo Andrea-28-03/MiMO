@@ -115,6 +115,7 @@ private:
     std::vector<CatalogItem> instrumentCatalog;
     std::vector<CatalogItem> effectCatalog;
     std::vector<CatalogItem> utilityCatalog;
+    float sidebarScrollY = 0.0f;
 
     // Moduli Integrati (Hardware Reale del Laptop: Microfono & Webcam)
     float micSensitivity = 0.65f;
@@ -451,6 +452,9 @@ private:
     juce::Rectangle<float> getEffectsBodyBounds() const;
     juce::Rectangle<float> getUtilitiesHeaderBounds() const;
     juce::Rectangle<float> getUtilitiesBodyBounds() const;
+    float getSidebarContentHeight() const;
+    float getSidebarMaxScroll() const;
+    juce::Rectangle<float> getSidebarViewportBounds() const;
     juce::Rectangle<float> getSlotBounds(int slotIdx) const;
     juce::Rectangle<float> getDockTabBounds(int tabIdx) const;
     juce::Rectangle<float> getPolaroidCardBounds() const;
