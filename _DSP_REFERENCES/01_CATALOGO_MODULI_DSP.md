@@ -243,7 +243,10 @@ I seguenti moduli rimangono registrati nel catalogo per le iterazioni successive
 | `fx-filtro-svf` | Filtro ZDF SVF Stereo | Effetto | **Alta (P1)** | `[✅ Completato V2]` | Sì (Dry/Wet + Output Level) |
 | `fx-eco-nastro` | Eco a Nastro Ping-Pong | Effetto | **Alta (P1)** | `[✅ Completato V2]` | Sì (Dry/Wet + Output Level) |
 | `fx-riverbero-fdn`| Riverbero Lush FDN | Effetto | **Alta (P1)** | `[✅ Completato V2]` | Sì (Dry/Wet + Output Level) |
+| `fx-moog-ladder`  | Moog Ladder 24dB        | Effetto   | Media         | `[✅ Completato V2]` | Sì (Dry/Wet + Output Level + Drive) |
+| `fx-chorus-bbd`   | Chorus BBD Analogico    | Effetto   | Media         | `[✅ Completato V2]` | Sì (Dry/Wet + Output Level) |
 | `ut-scale-lock` | Smart Scale Lock | Utility | **Alta (P1)** | `[✅ Completato V2]` | N/A (Control Voltage) |
 | `mod-env-follower` | Envelope Follower | Modulatore| Media | `[✅ Completato V2]` | N/A (Control Voltage) |
+| `mod-lfo-poly`     | LFO Multi-Onda          | Modulatore| Media         | `[✅ Completato V2]` | N/A (Control Voltage) |
 | `ut-looper-tape` | 1-Button Looper | Utility | Media | `[✅ Completato V2]` | Sì (Loop Level) |
 | *Espansioni (15)*| Moog, Shimmer, Vowel, ecc.| Misti | Fase 4 | `[Pianificato]` | Standard V2 |
