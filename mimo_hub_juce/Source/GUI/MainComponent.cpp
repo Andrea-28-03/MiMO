@@ -2,701 +2,9 @@
 #include <BinaryData.h>
 #include <cmath>
 
-#if JUCE_WINDOWS
-// Dichiarazioni minime COM (evitiamo di includere <windows.h> e le sue macro in questo file)
-extern "C" __declspec(dllimport) long __stdcall CoInitializeEx(void* pvReserved, unsigned long dwCoInit);
-extern "C" __declspec(dllimport) void __stdcall CoUninitialize();
-#endif
-
 namespace mimo
 {
 
-namespace
-{
-    int scoreCameraDeviceName(const juce::String& name)
-    {
-        const auto s = name.toLowerCase();
-        // Webcam nativa del PC (HP, Wide Vision) = PRIORITÀ ASSOLUTA (500) come predefinita!
-        if (s.contains("hp") || s.contains("wide vision"))
-            return 500;
-        if (s.contains("integrated") || s.contains("webcam") || s.contains("hd camera") || s.contains("uvc")
-            || s.contains("logitech") || s.contains("front") || s.contains("internal"))
-            return 350;
-
-        // Su laptop HP con NVIDIA Broadcast attivo, NVIDIA fa da bridge per la webcam HP fisica (250)
-        if (s.contains("nvidia"))
-            return 250;
-
-        // Camo: smartphone camera USB/Wi-Fi (150)
-        if (s.contains("camo"))
-            return 150;
-
-        if (s.contains("droidcam") || s.contains("iriun") || s.contains("epoccam"))
-            return 80;
-
-        // Camere virtuali (OBS, ManyCam, ecc.) = priorita negativa per non selezionarle mai all'avvio!
-        if (s.contains("obs") || s.contains("virtual")
-            || s.contains("manycam") || s.contains("snap")
-            || s.contains("vcam") || s.contains("splitcam") || s.contains("xsplit"))
-            return -200;
-
-        return 20;
-    }
-
-    inline bool isSkinPixel(int r, int g, int b)
-    {
-        // Spazio colore YCbCr: segmentazione cromatica robusta per tutte le tonalita di pelle e condizioni di luce
-        const float cb = 128.0f - 0.168736f * static_cast<float>(r) - 0.331264f * static_cast<float>(g) + 0.500000f * static_cast<float>(b);
-        const float cr = 128.0f + 0.500000f * static_cast<float>(r) - 0.418688f * static_cast<float>(g) - 0.081312f * static_cast<float>(b);
-
-        if (cb >= 75.0f && cb <= 135.0f && cr >= 128.0f && cr <= 182.0f)
-            return true;
-
-        // Fallback RGB (copre illuminazione calda, tungsteno o forte contrasto)
-        if (r > 60 && g > 35 && b > 20 && r >= g && (r - b) >= 8)
-            return true;
-
-        return false;
-    }
-
-    int scoreMicDeviceName(const juce::String& name)
-    {
-        const auto s = name.toLowerCase();
-        if (s.contains("camo") || s.contains("nvidia") || s.contains("virtual")
-            || s.contains("cable") || s.contains("stereo mix") || s.contains("missaggio")
-            || s.contains("loopback") || s.contains("what u hear"))
-            return -100;
-
-        // Evita di forzare le cuffie Bluetooth in modalità telefonica Hands-Free se c'è il mic integrato
-        if (s.contains("hands-free") || s.contains("ag audio"))
-            return -30;
-
-        if (s.contains("gruppo microfoni") || s.contains("microphone array")
-            || s.contains("smart sound") || s.contains("intel")
-            || s.contains("realtek") || s.contains("interno") || s.contains("internal")
-            || s.contains("array"))
-            return 100;
-
-        return 25;
-    }
-}
-
-// =============================================================================
-// MicWorker: apre, gestisce e chiude il microfono WASAPI e l'uscita synth
-// su un thread in background. Zero blocchi (0 ms) sul thread grafico UI!
-// =============================================================================
-class MainComponent::MicWorker : public juce::Thread,
-                                 private juce::AudioIODeviceCallback
-{
-public:
-    explicit MicWorker(MainComponent& o) : juce::Thread("MiMO Mic Worker"), owner(o) {}
-    ~MicWorker() override
-    {
-        wanted.store(false);
-        signalThreadShouldExit();
-        notify();
-        stopThread(4000);
-    }
-
-    void setWanted(bool shouldRun)
-    {
-        if (shouldRun && !wanted.load())
-            reopenGen.fetch_add(1);
-        wanted.store(shouldRun);
-        notify();
-    }
-
-    void requestReopen()
-    {
-        reopenGen.fetch_add(1);
-        notify();
-    }
-
-    void run() override
-    {
-       #if JUCE_WINDOWS
-        const long hr = CoInitializeEx(nullptr, 0x2 /* COINIT_APARTMENTTHREADED */);
-       #endif
-
-        int handledGen = -1;
-        int silentCheckCounter = 0;
-        bool autoFallbackTried = false;
-
-        while (!threadShouldExit())
-        {
-            const bool want = wanted.load();
-            const int gen = reopenGen.load();
-
-            if (!want)
-            {
-                if (inDevice != nullptr || outDevice != nullptr || owner.micStateAtomic.load() != static_cast<int>(HwState::Off))
-                {
-                    closeDevices();
-                    owner.setMicStatus(HwState::Off, "Microfono spento");
-                }
-                handledGen = -1;
-                silentCheckCounter = 0;
-                autoFallbackTried = false;
-            }
-            else if (gen != handledGen)
-            {
-                handledGen = gen;
-                silentCheckCounter = 0;
-                closeDevices();
-                openDevices();
-            }
-            else if (inDevice != nullptr && owner.micStateAtomic.load() == static_cast<int>(HwState::Running))
-            {
-                // Se il dispositivo scelto automaticamente produce 0.0 assoluto per ~2.5s, prova il prossimo microfono fisico
-                if (owner.realMicPeakRaw.load() <= 0.000001f)
-                {
-                    if (++silentCheckCounter == 16 && !autoFallbackTried)
-                    {
-                        autoFallbackTried = true;
-                        juce::StringArray list;
-                        {
-                            const juce::ScopedLock sl(owner.micInfoLock);
-                            list = owner.micDeviceList;
-                        }
-                        if (list.size() > 1)
-                        {
-                            const int cur = owner.micDeviceIndex.load();
-                            for (int step = 1; step < list.size(); ++step)
-                            {
-                                const int cand = (cur + step) % list.size();
-                                if (scoreMicDeviceName(list[cand]) > -50)
-                                {
-                                    owner.micDeviceIndex.store(cand);
-                                    reopenGen.fetch_add(1);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    silentCheckCounter = 0;
-                }
-            }
-
-            wait(150);
-        }
-
-        closeDevices();
-
-       #if JUCE_WINDOWS
-        if (hr >= 0)
-            CoUninitialize();
-       #endif
-    }
-
-private:
-    // Callback per l'uscita audio (sintetizzatore percussivo quando il microfono fa TRIG!)
-    void audioDeviceIOCallbackWithContext(const float* const* /*inputChannelData*/,
-                                          int /*numInputChannels*/,
-                                          float* const* outputChannelData,
-                                          int numOutputChannels,
-                                          int numSamples,
-                                          const juce::AudioIODeviceCallbackContext& /*context*/) override
-    {
-        if (outputChannelData == nullptr || numOutputChannels <= 0 || numSamples <= 0)
-            return;
-
-        if (owner.synthTriggerPending.exchange(false))
-        {
-            owner.synthEnv = juce::jlimit(0.25f, 1.0f, owner.synthHitVelocity.load());
-            owner.synthPitchEnv = 1.0f;
-        }
-
-        if (owner.synthEnv <= 0.0005f)
-        {
-            for (int ch = 0; ch < numOutputChannels; ++ch)
-                if (outputChannelData[ch] != nullptr)
-                    juce::FloatVectorOperations::clear(outputChannelData[ch], numSamples);
-            return;
-        }
-
-        const float sr = static_cast<float>(std::max(8000.0, owner.synthSampleRate));
-        const int instType = owner.synthInstrumentType.load();
-        const float cutoffHz = juce::jlimit(80.0f, 12000.0f, owner.synthFilterCutoffHz.load());
-        const float reso = juce::jlimit(0.05f, 0.92f, owner.synthFilterReso.load());
-        const float masterGain = juce::jlimit(0.0f, 2.0f, owner.synthMasterGain.load());
-
-        const float f = juce::jlimit(0.01f, 0.85f, 2.0f * std::sin(juce::MathConstants<float>::pi * std::min(cutoffHz, sr * 0.42f) / sr));
-        const float q = 1.0f - reso * 0.85f;
-
-        float* outL = outputChannelData[0];
-        float* outR = (numOutputChannels > 1) ? outputChannelData[1] : nullptr;
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            owner.synthRng = owner.synthRng * 1664525u + 1013904223u;
-            const float noise = (static_cast<float>(owner.synthRng & 0xFFFFu) / 32768.0f) - 1.0f;
-
-            float baseFreq = 58.0f;
-            float pitchDrop = 160.0f;
-            float envDecay = 0.99935f;
-            float noiseMix = 0.28f;
-
-            if (instType == 1) // Tamburi Giocattolo / Snare
-            {
-                baseFreq = 145.0f;
-                pitchDrop = 220.0f;
-                envDecay = 0.9991f;
-                noiseMix = 0.55f;
-            }
-            else if (instType == 2) // Piano Feltro / Carillon / Melodico
-            {
-                baseFreq = 220.0f;
-                pitchDrop = 12.0f;
-                envDecay = 0.99965f;
-                noiseMix = 0.06f;
-            }
-            else if (instType == 3) // Synth / Theremin / Pad
-            {
-                baseFreq = 110.0f + (cutoffHz / 12000.0f) * 330.0f;
-                pitchDrop = 40.0f;
-                envDecay = 0.9997f;
-                noiseMix = 0.10f;
-            }
-
-            const float freq = baseFreq + owner.synthPitchEnv * pitchDrop;
-            owner.synthPhase += freq / sr;
-            if (owner.synthPhase >= 1.0f)
-                owner.synthPhase -= 1.0f;
-
-            const float tone = std::sin(owner.synthPhase * juce::MathConstants<float>::twoPi)
-                             + 0.35f * std::sin(owner.synthPhase * juce::MathConstants<float>::twoPi * 2.0f);
-            const float raw = (tone * (1.0f - noiseMix) + noise * noiseMix * owner.synthPitchEnv) * owner.synthEnv;
-
-            // Filtro SVF 12dB/oct controllato dalle manopole Cutoff/Risonanza nel Canvas!
-            owner.synthFilterLp += f * owner.synthFilterBp;
-            const float hp = raw - owner.synthFilterLp - q * owner.synthFilterBp;
-            owner.synthFilterBp += f * hp;
-
-            const float sample = juce::jlimit(-0.95f, 0.95f, owner.synthFilterLp * 0.55f * masterGain);
-
-            if (outL != nullptr) outL[i] = sample;
-            if (outR != nullptr) outR[i] = sample;
-
-            owner.synthEnv *= envDecay;
-            owner.synthPitchEnv *= 0.9975f;
-        }
-
-        for (int ch = 2; ch < numOutputChannels; ++ch)
-            if (outputChannelData[ch] != nullptr)
-                juce::FloatVectorOperations::clear(outputChannelData[ch], numSamples);
-    }
-
-    void audioDeviceAboutToStart(juce::AudioIODevice* dev) override
-    {
-        if (dev != nullptr && dev->getCurrentSampleRate() > 0.0)
-            owner.synthSampleRate = dev->getCurrentSampleRate();
-    }
-
-    void audioDeviceStopped() override {}
-
-    void openDevices()
-    {
-        owner.setMicStatus(HwState::Starting, "Avvio microfono...");
-
-        if (wasapiType == nullptr)
-            wasapiType.reset(juce::AudioIODeviceType::createAudioIODeviceType_WASAPI(juce::WASAPIDeviceMode::shared));
-
-        if (wasapiType == nullptr)
-        {
-            owner.setMicStatus(HwState::Error, "Driver audio WASAPI non disponibile");
-            return;
-        }
-
-        wasapiType->scanForDevices();
-        const auto inNames = wasapiType->getDeviceNames(true);
-        const auto outNames = wasapiType->getDeviceNames(false);
-
-        {
-            const juce::ScopedLock sl(owner.micInfoLock);
-            owner.micDeviceList = inNames;
-        }
-
-        if (inNames.isEmpty())
-        {
-            owner.setMicStatus(HwState::Error, "Nessun microfono rilevato");
-            return;
-        }
-
-        int desiredIdx = owner.micDeviceIndex.load();
-        if (desiredIdx < 0 || desiredIdx >= inNames.size())
-        {
-            int bestScore = -9999;
-            int bestIdx = 0;
-            for (int i = 0; i < inNames.size(); ++i)
-            {
-                const int sc = scoreMicDeviceName(inNames[i]);
-                if (sc > bestScore)
-                {
-                    bestScore = sc;
-                    bestIdx = i;
-                }
-            }
-            desiredIdx = bestIdx;
-            owner.micDeviceIndex.store(desiredIdx);
-        }
-
-        // Prova prima il dispositivo scelto, poi eventuali alternative se fallisce l'apertura
-        int openedIdx = -1;
-        for (int attempt = 0; attempt < inNames.size() && !threadShouldExit(); ++attempt)
-        {
-            const int cand = (desiredIdx + attempt) % inNames.size();
-            if (attempt > 0 && scoreMicDeviceName(inNames[cand]) <= -100)
-                continue;
-
-            std::unique_ptr<juce::AudioIODevice> dev(wasapiType->createDevice({}, inNames[cand]));
-            if (dev != nullptr)
-            {
-                juce::BigInteger inChans;
-                inChans.setRange(0, 2, true);
-                juce::BigInteger outChans;
-                const auto err = dev->open(inChans, outChans, 0.0, 0);
-                if (err.isEmpty() && dev->isOpen())
-                {
-                    dev->start(&owner);
-                    inDevice = std::move(dev);
-                    openedIdx = cand;
-                    break;
-                }
-            }
-        }
-
-        if (inDevice == nullptr)
-        {
-            owner.setMicStatus(HwState::Error, "Accesso microfono negato (verifica Privacy Windows)");
-            return;
-        }
-
-        owner.micDeviceIndex.store(openedIdx);
-        {
-            const juce::ScopedLock sl(owner.micInfoLock);
-            owner.micDeviceName = inNames[openedIdx];
-        }
-        owner.setMicStatus(HwState::Running, "In ascolto");
-
-        // Apre in modo indipendente anche l'uscita audio per far suonare i colpi di batteria
-        if (!outNames.isEmpty() && !threadShouldExit())
-        {
-            const int defOut = juce::jlimit(0, outNames.size() - 1, wasapiType->getDefaultDeviceIndex(false));
-            std::unique_ptr<juce::AudioIODevice> oDev(wasapiType->createDevice(outNames[defOut], {}));
-            if (oDev != nullptr)
-            {
-                juce::BigInteger inC;
-                juce::BigInteger outC;
-                outC.setRange(0, 2, true);
-                if (oDev->open(inC, outC, 0.0, 0).isEmpty() && oDev->isOpen())
-                {
-                    oDev->start(this);
-                    outDevice = std::move(oDev);
-                }
-            }
-        }
-    }
-
-    void closeDevices()
-    {
-        if (inDevice != nullptr)
-        {
-            inDevice->stop();
-            inDevice->close();
-            inDevice.reset();
-        }
-        if (outDevice != nullptr)
-        {
-            outDevice->stop();
-            outDevice->close();
-            outDevice.reset();
-        }
-        owner.realMicLevel.store(0.0f);
-        owner.realMicPeakRaw.store(0.0f);
-        owner.realMicTriggered.store(false);
-    }
-
-    MainComponent& owner;
-    std::unique_ptr<juce::AudioIODeviceType> wasapiType;
-    std::unique_ptr<juce::AudioIODevice> inDevice;
-    std::unique_ptr<juce::AudioIODevice> outDevice;
-    std::atomic<bool> wanted { false };
-    std::atomic<int> reopenGen { 0 };
-};
-
-// =============================================================================
-// CameraWorker: apre, gestisce e chiude la webcam su un thread dedicato.
-// Seleziona automaticamente la webcam fisica del laptop (es. HP Wide Vision HD)
-// evitando le webcam virtuali inattive (es. Camo / NVIDIA Broadcast).
-// =============================================================================
-class MainComponent::CameraWorker : public juce::Thread
-{
-public:
-    explicit CameraWorker(MainComponent& o) : juce::Thread("MiMO Camera Worker"), owner(o) {}
-    ~CameraWorker() override
-    {
-        wanted.store(false);
-        signalThreadShouldExit();
-        notify();
-        stopThread(5000);
-    }
-
-    void setWanted(bool shouldRun)
-    {
-        if (shouldRun && !wanted.load())
-            reopenGen.fetch_add(1);
-        wanted.store(shouldRun);
-        notify();
-    }
-
-    void requestReopen()
-    {
-        reopenGen.fetch_add(1);
-        notify();
-    }
-
-    void run() override
-    {
-       #if JUCE_WINDOWS
-        const long hr = CoInitializeEx(nullptr, 0x2 /* COINIT_APARTMENTTHREADED */);
-       #endif
-
-        int handledGen = -1;
-        int noFrameTicks = 0;
-        bool fallbackMode = false;
-        float simPhase = 0.0f;
-
-        while (!threadShouldExit())
-        {
-            const bool want = wanted.load();
-            const int gen = reopenGen.load();
-
-            if (!want)
-            {
-                if (device != nullptr || fallbackMode || owner.cameraState.load() != static_cast<int>(HwState::Off))
-                {
-                    closeDevice();
-                    fallbackMode = false;
-                    owner.setCameraStatus(HwState::Off, "Webcam spenta");
-                }
-                handledGen = -1;
-                noFrameTicks = 0;
-            }
-            else if (gen != handledGen)
-            {
-                handledGen = gen;
-                noFrameTicks = 0;
-                fallbackMode = false;
-                closeDevice();
-                if (!openDevice())
-                {
-                    // Nessuna webcam fisica disponibile o accesso bloccato: attiva sensore ottico simulato live
-                    fallbackMode = true;
-                    owner.setCameraStatus(HwState::Running, "Sensore Ottico Live (Sim)");
-                }
-            }
-            else if (device != nullptr && !fallbackMode)
-            {
-                // Se la webcam sta inviando fotogrammi normalmente, azzera il watchdog
-                if (owner.cameraFrameCounter.load() > 0)
-                {
-                    noFrameTicks = 0;
-                }
-                else
-                {
-                    // Se una videocamera non invia frame dopo oltre 8 secondi, ritenta la riapertura dello stesso dispositivo
-                    if (++noFrameTicks >= 55)
-                    {
-                        noFrameTicks = 0;
-                        reopenGen.fetch_add(1);
-                    }
-                }
-            }
-
-            if (want && fallbackMode && !threadShouldExit())
-            {
-                generateSimulatedOpticalFrame(simPhase);
-                simPhase += 0.09f;
-                wait(33); // ~30 FPS
-            }
-            else
-            {
-                wait(150);
-            }
-        }
-
-        closeDevice();
-
-       #if JUCE_WINDOWS
-        if (hr >= 0)
-            CoUninitialize();
-       #endif
-    }
-
-private:
-    bool openDevice()
-    {
-        owner.setCameraStatus(HwState::Starting, "Avvio webcam...");
-        owner.cameraFrameCounter.store(0);
-
-        const auto names = juce::CameraDevice::getAvailableDevices();
-        {
-            const juce::ScopedLock sl(owner.cameraInfoLock);
-            owner.cameraDeviceList = names;
-        }
-
-        if (names.isEmpty())
-            return false;
-
-        int desiredIdx = owner.cameraDeviceIndex.load();
-        if (desiredIdx < 0 || desiredIdx >= names.size())
-        {
-            int bestScore = -9999;
-            int bestIdx = 0;
-            for (int i = 0; i < names.size(); ++i)
-            {
-                const int sc = scoreCameraDeviceName(names[i]);
-                if (sc > bestScore)
-                {
-                    bestScore = sc;
-                    bestIdx = i;
-                }
-            }
-            desiredIdx = bestIdx;
-            owner.cameraDeviceIndex.store(desiredIdx);
-        }
-
-        // 1. Prova ad aprire il dispositivo desiderato (HP Wide Vision HD / videocamera scelta)
-        {
-            std::unique_ptr<juce::CameraDevice> d(juce::CameraDevice::openDevice(desiredIdx, 640, 480, 1280, 720, true));
-            if (d == nullptr && !threadShouldExit())
-                d.reset(juce::CameraDevice::openDevice(desiredIdx, 320, 240, 1280, 720, false));
-            if (d == nullptr && !threadShouldExit())
-                d.reset(juce::CameraDevice::openDevice(desiredIdx, 320, 240, 640, 480, false));
-            if (d == nullptr && !threadShouldExit())
-                d.reset(juce::CameraDevice::openDevice(desiredIdx, 160, 120, 1920, 1080, false));
-
-            if (d != nullptr)
-            {
-                d->addListener(&owner);
-                device = std::move(d);
-                owner.cameraDeviceIndex.store(desiredIdx);
-                {
-                    const juce::ScopedLock sl(owner.cameraInfoLock);
-                    owner.cameraDeviceName = names[desiredIdx];
-                }
-                owner.setCameraStatus(HwState::Running, "Webcam attiva: " + names[desiredIdx]);
-                return true;
-            }
-        }
-
-        // 2. Solo se il dispositivo primario fallisce, prova gli altri dispositivi presenti nel sistema
-        for (int i = 0; i < names.size() && !threadShouldExit(); ++i)
-        {
-            if (i == desiredIdx)
-                continue;
-
-            std::unique_ptr<juce::CameraDevice> d(juce::CameraDevice::openDevice(i, 640, 480, 1280, 720, true));
-            if (d == nullptr && !threadShouldExit())
-                d.reset(juce::CameraDevice::openDevice(i, 320, 240, 640, 480, false));
-
-            if (d != nullptr)
-            {
-                d->addListener(&owner);
-                device = std::move(d);
-                owner.cameraDeviceIndex.store(i);
-                {
-                    const juce::ScopedLock sl(owner.cameraInfoLock);
-                    owner.cameraDeviceName = names[i];
-                }
-                owner.setCameraStatus(HwState::Running, "Webcam attiva: " + names[i]);
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    void generateSimulatedOpticalFrame(float phase)
-    {
-        juce::Image sim(juce::Image::RGB, 160, 120, false);
-        juce::Graphics g(sim);
-        g.fillAll(juce::Colour(0xFF1A2226));
-
-        const float cx = 80.0f + std::sin(phase * 1.1f) * 48.0f;
-        const float cy = 60.0f + std::cos(phase * 0.8f) * 32.0f;
-
-        juce::ColourGradient grad(MiMOLookAndFeel::crayonCyan.withAlpha(0.85f), cx, cy,
-                                  juce::Colour(0xFF1A2226), cx + 55.0f, cy + 55.0f, true);
-        g.setGradientFill(grad);
-        g.fillEllipse(cx - 42.0f, cy - 42.0f, 84.0f, 84.0f);
-
-        g.setColour(MiMOLookAndFeel::crayonOchre.withAlpha(0.75f));
-        g.fillEllipse(cx - 14.0f, cy - 14.0f, 28.0f, 28.0f);
-
-        owner.imageReceived(sim);
-    }
-
-    void closeDevice()
-    {
-        if (device != nullptr)
-        {
-            device->removeListener(&owner);
-            device.reset();
-        }
-
-        const juce::ScopedLock sl(owner.cameraLock);
-        owner.latestWebcamImage = juce::Image();
-        owner.prevWebcamImage = juce::Image();
-        owner.realCameraMotion.store(0.0f);
-        owner.realCameraBrightness.store(0.0f);
-        owner.hasNewWebcamFrame.store(false);
-        owner.cameraFrameCounter.store(0);
-    }
-
-    MainComponent& owner;
-    std::unique_ptr<juce::CameraDevice> device;
-    std::atomic<bool> wanted { false };
-    std::atomic<int> reopenGen { 0 };
-};
-
-// =============================================================================
-// Implementazione KnobParam
-// =============================================================================
-float MainComponent::KnobParam::getNormalized() const
-{
-    if (maxVal <= minVal)
-        return 0.0f;
-    if (unit.trim() == "Hz" && minVal > 0.0f)
-        return std::log(value / minVal) / std::log(maxVal / minVal);
-    return (value - minVal) / (maxVal - minVal);
-}
-
-void MainComponent::KnobParam::setFromNormalized(float norm)
-{
-    const float n = juce::jlimit(0.0f, 1.0f, norm);
-    if (unit.trim() == "Hz" && minVal > 0.0f)
-        value = minVal * std::pow(maxVal / minVal, n);
-    else
-        value = minVal + n * (maxVal - minVal);
-}
-
-juce::String MainComponent::KnobParam::getFormattedValue() const
-{
-    const float span = maxVal - minVal;
-    if (span >= 100.0f)
-        return juce::String(juce::roundToInt(value)) + unit;
-    if (span >= 10.0f)
-        return juce::String(value, 1) + unit;
-    return juce::String(value, 2) + unit;
-}
-
-// =============================================================================
-// Costruttore e Inizializzazione
-// =============================================================================
 MainComponent::MainComponent()
 {
     setLookAndFeel(&lookAndFeel);
@@ -788,6 +96,7 @@ MainComponent::MainComponent()
             return;
         // Triggera direttamente via AudioEngine da "hw-eye" (Fan-in su tutti i nodi collegati)
         audioEngine.triggerFromSource("hw-eye", fingerIdx, vel, isSecondary);
+        lastTriggerSourceCode.store(3);
         triggerPulseAlpha.store(1.0f);
 
         // Mano Primaria (DX): 0=Kick, 1=Snare, 2=Hi-Hat, 3=Percussione
@@ -896,6 +205,7 @@ void MainComponent::audioDeviceIOCallbackWithContext (const float* const* inputC
             realMicVelocity.store(vel);
             realMicTriggered.store(true);
             audioEngine.triggerFromSource("hw-mic", 0, vel);
+            lastTriggerSourceCode.store(2);
             triggerPulseAlpha.store(1.0f);
             synthHitVelocity.store(vel);
             synthTriggerPending.store(true);
@@ -1260,6 +570,7 @@ mimo::HandTrackingState MainComponent::analyzeHandFrame(const juce::Image& frame
                 if (eyeGesturePinchTrig && isHandTriggersEnabled(false))
                 {
                     audioEngine.triggerFromSource("hw-eye", static_cast<int>(p), st.pinchVelocity[p], false);
+                    lastTriggerSourceCode.store(3);
                     triggerPulseAlpha.store(1.0f);
                     synthHitVelocity.store(st.pinchVelocity[p]);
                     synthTriggerPending.store(true);
@@ -1886,110 +1197,9 @@ void MainComponent::syncEyeNodeOutputsWithDetailSettings()
     {
         if (n.isIntegratedCamera || n.id == "hw-webcam" || n.id == "hw-eye")
         {
-            if (n.outputGroups.size() != 8)
-            {
-                // 1. TOP-LEVEL: MANO DESTRA (DX)
-                NodeOutputGroup grpDxRoot;
-                grpDxRoot.id = "eye_dx";
-                grpDxRoot.name = "Mano Destra (DX)";
-                grpDxRoot.parentGroup = "";
-                grpDxRoot.isExpanded = true;
-
-                // 1.1 Palmo 3D (DX)
-                NodeOutputGroup grpDxPalm;
-                grpDxPalm.id = "eye_dx_palm";
-                grpDxPalm.name = "Palmo 3D";
-                grpDxPalm.parentGroup = "eye_dx";
-                grpDxPalm.isExpanded = true;
-                grpDxPalm.items = {
-                    { "mod:dx_x",    "Asse X (Orizz.)",  MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
-                    { "mod:dx_y",    "Asse Y (Vert.)",   MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
-                    { "mod:dx_z",    "Profondita Z",     MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" },
-                    { "mod:dx_fist", "Chiusura Pugno",   MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
-                    { "mod:dx_tilt", "Rotazione Mano",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
-                };
-
-                // 1.2 Dita & Falangi (DX)
-                NodeOutputGroup grpDxFingers;
-                grpDxFingers.id = "eye_dx_fingers";
-                grpDxFingers.name = "Dita & Falangi";
-                grpDxFingers.parentGroup = "eye_dx";
-                grpDxFingers.isExpanded = false;
-                grpDxFingers.items = {
-                    { "mod:dx_thumb", "Pollice Flex",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
-                    { "mod:dx_idx",   "Indice Flex",   MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
-                    { "mod:dx_mid",   "Medio Flex",    MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
-                    { "mod:dx_rng",   "Anulare Flex",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
-                    { "mod:dx_pky",   "Mignolo Flex",  MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" }
-                };
-
-                // 1.3 Trigger Pinch (DX)
-                NodeOutputGroup grpDxPinches;
-                grpDxPinches.id = "eye_dx_pinches";
-                grpDxPinches.name = "Trigger Pinch";
-                grpDxPinches.parentGroup = "eye_dx";
-                grpDxPinches.isExpanded = false;
-                grpDxPinches.items = {
-                    { "trigger:dx_pinch_idx", "Pinch Indice",  juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" },
-                    { "trigger:dx_pinch_mid", "Pinch Medio",   juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" },
-                    { "trigger:dx_pinch_rng", "Pinch Anulare", juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" },
-                    { "trigger:dx_pinch_pky", "Pinch Mignolo", juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" }
-                };
-
-                // 2. TOP-LEVEL: MANO SINISTRA (SX)
-                NodeOutputGroup grpSxRoot;
-                grpSxRoot.id = "eye_sx";
-                grpSxRoot.name = "Mano Sinistra (SX)";
-                grpSxRoot.parentGroup = "";
-                grpSxRoot.isExpanded = false;
-
-                // 2.1 Palmo 3D (SX)
-                NodeOutputGroup grpSxPalm;
-                grpSxPalm.id = "eye_sx_palm";
-                grpSxPalm.name = "Palmo 3D";
-                grpSxPalm.parentGroup = "eye_sx";
-                grpSxPalm.isExpanded = true;
-                grpSxPalm.items = {
-                    { "mod:sx_x",    "Asse X (Orizz.)",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-                    { "mod:sx_y",    "Asse Y (Vert.)",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-                    { "mod:sx_z",    "Profondita Z",     MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-                    { "mod:sx_fist", "Chiusura Pugno",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-                    { "mod:sx_tilt", "Rotazione Mano",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
-                };
-
-                // 2.2 Dita & Falangi (SX)
-                NodeOutputGroup grpSxFingers;
-                grpSxFingers.id = "eye_sx_fingers";
-                grpSxFingers.name = "Dita & Falangi";
-                grpSxFingers.parentGroup = "eye_sx";
-                grpSxFingers.isExpanded = false;
-                grpSxFingers.items = {
-                    { "mod:sx_thumb", "Pollice Flex",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-                    { "mod:sx_idx",   "Indice Flex",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-                    { "mod:sx_mid",   "Medio Flex",    MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-                    { "mod:sx_rng",   "Anulare Flex",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-                    { "mod:sx_pky",   "Mignolo Flex",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
-                };
-
-                // 2.3 Trigger Pinch (SX)
-                NodeOutputGroup grpSxPinches;
-                grpSxPinches.id = "eye_sx_pinches";
-                grpSxPinches.name = "Trigger Pinch";
-                grpSxPinches.parentGroup = "eye_sx";
-                grpSxPinches.isExpanded = false;
-                grpSxPinches.items = {
-                    { "trigger:sx_pinch_idx", "Pinch Indice",  juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" },
-                    { "trigger:sx_pinch_mid", "Pinch Medio",   juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" },
-                    { "trigger:sx_pinch_rng", "Pinch Anulare", juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" },
-                    { "trigger:sx_pinch_pky", "Pinch Mignolo", juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" }
-                };
-
-                n.outputGroups = {
-                    grpDxRoot, grpDxPalm, grpDxFingers, grpDxPinches,
-                    grpSxRoot, grpSxPalm, grpSxFingers, grpSxPinches
-                };
-            }
-            n.size.y = getNodeCalculatedHeight(n);
+            MiMOEyeDrawer::syncEyeNodeOutputsWithDetailSettings(n, eyePhalanxDetail, eyeHandFilter,
+                                                               eyeGesturePos3D, eyeGestureFistTilt,
+                                                               eyeGestureFingerFlex, eyeGesturePinchTrig);
         }
     }
 }
@@ -2267,6 +1477,7 @@ void MainComponent::timerCallback()
                     continue;
 
                 audioEngine.triggerFromSource("hw-eye", ev.fingerIndex, ev.velocity, ev.isSecondary);
+                lastTriggerSourceCode.store(3);
                 triggerPulseAlpha.store(1.0f);
 
                 // Mano Primaria (DX): 0=Kick, 1=Snare, 2=Hi-Hat, 3=Percussione
@@ -2548,60 +1759,6 @@ void MainComponent::initCatalogs()
     }
 }
 
-MainComponent::CanvasNode MainComponent::createFxNodeFromCatalog(const CatalogItem& fx, juce::Point<float> worldPos, int uniqueSeed, bool isVertical)
-{
-    CanvasNode node;
-    node.id = fx.id + "-" + juce::String(uniqueSeed);
-    node.type = NodeType::NestedEffect;
-    node.label = fx.name;
-    node.subtitle = "Nodo Nested - Doppio clic per aprire";
-    node.pos = worldPos;
-    node.targetPos = worldPos;
-    node.isAnimatingPos = false;
-    node.isVerticalFlow = isVertical;
-    node.size = isVertical ? juce::Point<float>{ 245.0f, 165.0f } : juce::Point<float>{ 260.0f, 165.0f };
-    node.crayonColour = fx.colour;
-    node.innerBlocks = fx.templateBlocks;
-    return node;
-}
-
-MainComponent::CanvasNode MainComponent::createInstrumentNodeFromCatalog(const CatalogItem& item, juce::Point<float> worldPos, int uniqueSeed)
-{
-    CanvasNode node;
-    node.id = item.id + "-" + juce::String(uniqueSeed);
-    node.type = NodeType::InstrumentNode;
-    node.label = item.name;
-    node.subtitle = item.category + " (" + item.engine + ")";
-    node.pos = worldPos;
-    node.targetPos = worldPos;
-    node.isAnimatingPos = false;
-    node.isVerticalFlow = false;
-    node.size = { 280.0f, 165.0f };
-    node.crayonColour = item.colour;
-    node.hasInstrument = true;
-    node.instrumentName = item.name;
-    node.instrumentEngine = item.engine;
-
-    // Macro Flat Pastello essenziali per sound design immediato
-    if (item.category.containsIgnoreCase("Percussion") || item.id.containsIgnoreCase("kit") || item.id.containsIgnoreCase("drum"))
-    {
-        node.directParams = {
-            { "vol",   "Volume",   0.0f, 1.5f, 0.95f, 0.95f, "",     true },
-            { "pitch", "Accordo", -12.0f, 12.0f, 0.0f, 0.0f, " st", true },
-            { "decay", "Decay",   0.05f, 1.2f, 0.35f, 0.35f, " s",  true }
-        };
-    }
-    else
-    {
-        node.directParams = {
-            { "vol",    "Volume", 0.0f, 1.5f, 0.95f, 0.95f, "",     true },
-            { "cutoff", "Cutoff", 100.0f, 14000.0f, 3200.0f, 3200.0f, " Hz", true },
-            { "decay",  "Decay",  0.1f, 3.0f, 0.65f, 0.65f, " s",   true }
-        };
-    }
-    return node;
-}
-
 void MainComponent::syncAudioRoutes()
 {
     std::vector<mimo::audio::NodeAudioRoute> routes;
@@ -2814,73 +1971,6 @@ void MainComponent::initDefaultStudioGraph()
 }
 
 // =============================================================================
-// Coordinate e Geometria del Canvas Infinito
-// =============================================================================
-juce::Point<float> MainComponent::screenToWorld(juce::Point<float> screenPt) const
-{
-    return (screenPt - canvasOffset) / canvasZoom;
-}
-
-juce::Point<float> MainComponent::worldToScreen(juce::Point<float> worldPt) const
-{
-    return worldPt * canvasZoom + canvasOffset;
-}
-
-juce::Rectangle<float> MainComponent::worldToScreenRect(juce::Rectangle<float> worldRect) const
-{
-    const auto tl = worldToScreen(worldRect.getTopLeft());
-    return { tl.x, tl.y, worldRect.getWidth() * canvasZoom, worldRect.getHeight() * canvasZoom };
-}
-
-std::vector<MainComponent::KnobHit> MainComponent::collectCanvasKnobs() const
-{
-    std::vector<KnobHit> list;
-
-    for (const auto& node : nodes)
-    {
-        if (node.type == NodeType::NestedEffect)
-        {
-            std::vector<std::pair<juce::String, const KnobParam*>> exposed;
-            for (const auto& b : node.innerBlocks)
-                for (const auto& p : b.params)
-                    if (p.isExposed)
-                        exposed.push_back({ b.id, &p });
-
-            const int count = std::max(1, static_cast<int>(exposed.size()));
-            const float slotW = (node.size.x - 20.0f) / static_cast<float>(count);
-            for (int i = 0; i < static_cast<int>(exposed.size()); ++i)
-            {
-                const float kx = node.pos.x + 10.0f + static_cast<float>(i) * slotW;
-                const float ky = node.pos.y + 62.0f;
-                list.push_back({ node.id, exposed[static_cast<size_t>(i)].first,
-                                 exposed[static_cast<size_t>(i)].second->key,
-                                 { kx, ky, slotW, 88.0f } });
-            }
-        }
-        else if (node.type == NodeType::InstrumentNode && !node.directParams.empty())
-        {
-            const int count = static_cast<int>(node.directParams.size());
-            const float marginL = 38.0f;
-            const float marginR = 18.0f;
-            const float availW = node.size.x - marginL - marginR;
-            const float slotW = availW / static_cast<float>(count);
-            for (int i = 0; i < count; ++i)
-            {
-                const float kx = node.pos.x + marginL + static_cast<float>(i) * slotW;
-                const float ky = node.pos.y + 68.0f;
-                list.push_back({ node.id, "direct", node.directParams[static_cast<size_t>(i)].key,
-                                 { kx, ky, slotW, 84.0f } });
-            }
-        }
-        else if (node.type == NodeType::MasterOut && !node.directParams.empty())
-        {
-            list.push_back({ node.id, "direct", node.directParams[0].key,
-                             { node.pos.x + 25.0f, node.pos.y + 52.0f, node.size.x - 50.0f, 88.0f } });
-        }
-    }
-    return list;
-}
-
 void MainComponent::initDefaultLivePresets()
 {
     photoAlbum.clear();
@@ -3050,365 +2140,6 @@ void MainComponent::triggerSceneSlot(int slotIdx)
         activeSceneSlot = slotIdx;
         repaint();
     }
-}
-
-float MainComponent::getNodeCalculatedHeight(const CanvasNode& node) const
-{
-    if (node.type != NodeType::HardwareModule || node.outputGroups.empty())
-        return node.size.y;
-
-    const bool isEye = (node.isIntegratedCamera || node.id == "hw-eye" || node.id == "hw-webcam");
-    const bool isMic = (node.isIntegratedMic || node.id == "hw-mic" || node.id == "hw-drum");
-
-    float h = isEye ? 168.0f : (isMic ? 104.0f : 96.0f);
-
-    for (size_t gIdx = 0; gIdx < node.outputGroups.size(); ++gIdx)
-    {
-        const auto& grp = node.outputGroups[gIdx];
-        if (!grp.parentGroup.isEmpty())
-            continue; // Subgroup conteggiato sotto al proprio genitore
-
-        h += 26.0f; // Top-Level Header
-        if (grp.items.empty()) // Ha sottogruppi
-        {
-            if (grp.isExpanded)
-            {
-                for (size_t sIdx = 0; sIdx < node.outputGroups.size(); ++sIdx)
-                {
-                    const auto& sub = node.outputGroups[sIdx];
-                    if (sub.parentGroup == grp.id)
-                    {
-                        h += 24.0f; // Subheader
-                        if (sub.isExpanded)
-                            h += static_cast<float>(sub.items.size()) * 26.0f;
-                    }
-                }
-            }
-        }
-        else // Gruppo lineare diretto
-        {
-            if (grp.isExpanded)
-                h += static_cast<float>(grp.items.size()) * 26.0f;
-        }
-        h += 4.0f;
-    }
-
-    if (isEye || isMic)
-        h += 34.0f; // Barra dropdown selettore in basso
-
-    h += 8.0f;
-    return std::max(h, isEye ? 240.0f : 180.0f);
-}
-
-std::vector<MainComponent::PinHit> MainComponent::collectAllPins() const
-{
-    std::vector<PinHit> pins;
-
-    for (const auto& node : nodes)
-    {
-        if (node.type == NodeType::RockPiCentral)
-        {
-            // 5 Prese di connessione sotto ciascuno dei 5 tasti fisici
-            static constexpr float keyXFractions[5] = { 0.1490f, 0.2958f, 0.4426f, 0.5895f, 0.7349f };
-            for (int i = 0; i < 5; ++i)
-            {
-                const float cx = node.pos.x + node.size.x * keyXFractions[i];
-                pins.push_back({ node.id, "audio:p" + juce::String(i + 1), false, false,
-                                 MiMOLookAndFeel::fountainInk, { cx, node.pos.y + node.size.y + 4.0f },
-                                 { 0.0f, 1.0f }, MiMOLookAndFeel::PinShapeType::AudioCircle });
-            }
-            pins.push_back({ node.id, "audio:out", true, false,
-                             MiMOLookAndFeel::fountainInk, { node.pos.x + node.size.x + 4.0f, node.pos.y + node.size.y * 0.52f },
-                             { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::AudioCircle });
-        }
-        else if (node.type == NodeType::HardwareModule)
-        {
-            // Presa fisica di connessione sul bordo superiore del modulo (audio out verso MiMO)
-            pins.push_back({ node.id, "audio:out", true, false,
-                             MiMOLookAndFeel::fountainInk, { node.pos.x + 29.0f, node.pos.y },
-                             { 0.0f, -1.0f }, MiMOLookAndFeel::PinShapeType::AudioCircle });
-
-            if (!node.outputGroups.empty())
-            {
-                const bool isEye = (node.isIntegratedCamera || node.id == "hw-webcam" || node.id == "hw-eye");
-                const bool isMic = (node.isIntegratedMic || node.id == "hw-mic" || node.id == "hw-drum");
-                float curY = isEye ? (node.pos.y + 168.0f) : (isMic ? (node.pos.y + 104.0f) : (node.pos.y + 96.0f));
-
-                for (size_t gIdx = 0; gIdx < node.outputGroups.size(); ++gIdx)
-                {
-                    const auto& grp = node.outputGroups[gIdx];
-                    if (!grp.parentGroup.isEmpty())
-                        continue; // Processato nel contenitore genitore
-
-                    const float topHeaderCentreY = curY + 13.0f;
-                    curY += 26.0f;
-
-                    if (grp.items.empty()) // Contenitore con sottogruppi (Mano DX / Mano SX)
-                    {
-                        if (!grp.isExpanded)
-                        {
-                            // Gruppo principale chiuso: tutti i pin dei sottogruppi si attestano sull'header principale
-                            for (size_t sIdx = 0; sIdx < node.outputGroups.size(); ++sIdx)
-                            {
-                                const auto& sub = node.outputGroups[sIdx];
-                                if (sub.parentGroup == grp.id)
-                                {
-                                    for (const auto& item : sub.items)
-                                    {
-                                        const auto shape = item.isTrigger ? MiMOLookAndFeel::PinShapeType::TriggerDiamond
-                                                                          : MiMOLookAndFeel::PinShapeType::ModulationTri;
-                                        pins.push_back({ node.id, item.pinId, true, !item.isTrigger,
-                                                         item.colour, { node.pos.x + node.size.x, topHeaderCentreY },
-                                                         { 1.0f, 0.0f }, shape });
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            // Gruppo principale aperto: scorri i singoli sottogruppi
-                            for (size_t sIdx = 0; sIdx < node.outputGroups.size(); ++sIdx)
-                            {
-                                const auto& sub = node.outputGroups[sIdx];
-                                if (sub.parentGroup != grp.id)
-                                    continue;
-
-                                const float subHeaderCentreY = curY + 12.0f;
-                                curY += 24.0f;
-
-                                if (sub.isExpanded)
-                                {
-                                    for (const auto& item : sub.items)
-                                    {
-                                        const float rowCentreY = curY + 13.0f;
-                                        const auto shape = item.isTrigger ? MiMOLookAndFeel::PinShapeType::TriggerDiamond
-                                                                          : MiMOLookAndFeel::PinShapeType::ModulationTri;
-                                        pins.push_back({ node.id, item.pinId, true, !item.isTrigger,
-                                                         item.colour, { node.pos.x + node.size.x, rowCentreY },
-                                                         { 1.0f, 0.0f }, shape });
-                                        curY += 26.0f;
-                                    }
-                                }
-                                else
-                                {
-                                    // Sottogruppo chiuso: i suoi pin si attestano sul sub-header
-                                    for (const auto& item : sub.items)
-                                    {
-                                        const auto shape = item.isTrigger ? MiMOLookAndFeel::PinShapeType::TriggerDiamond
-                                                                          : MiMOLookAndFeel::PinShapeType::ModulationTri;
-                                        pins.push_back({ node.id, item.pinId, true, !item.isTrigger,
-                                                         item.colour, { node.pos.x + node.size.x, subHeaderCentreY },
-                                                         { 1.0f, 0.0f }, shape });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    else // Gruppo lineare diretto (es. Modulo Batteria)
-                    {
-                        if (grp.isExpanded)
-                        {
-                            for (const auto& item : grp.items)
-                            {
-                                const float rowCentreY = curY + 13.0f;
-                                const auto shape = item.isTrigger ? MiMOLookAndFeel::PinShapeType::TriggerDiamond
-                                                                  : MiMOLookAndFeel::PinShapeType::ModulationTri;
-                                pins.push_back({ node.id, item.pinId, true, !item.isTrigger,
-                                                 item.colour, { node.pos.x + node.size.x, rowCentreY },
-                                                 { 1.0f, 0.0f }, shape });
-                                curY += 26.0f;
-                            }
-                        }
-                        else
-                        {
-                            for (const auto& item : grp.items)
-                            {
-                                const auto shape = item.isTrigger ? MiMOLookAndFeel::PinShapeType::TriggerDiamond
-                                                                  : MiMOLookAndFeel::PinShapeType::ModulationTri;
-                                pins.push_back({ node.id, item.pinId, true, !item.isTrigger,
-                                                 item.colour, { node.pos.x + node.size.x, topHeaderCentreY },
-                                                 { 1.0f, 0.0f }, shape });
-                            }
-                        }
-                    }
-                    curY += 4.0f;
-                }
-            }
-
-            if (node.outputGroups.empty() && (node.id == "hw-drum" || node.id == "hw-mic" || node.isIntegratedMic))
-            {
-                // Trigger Out (Impulso Colpo) -> Rombo Arancio Fiamma
-                const float trigY = node.isIntegratedMic ? (node.pos.y + 115.0f) : (node.pos.y + 109.0f);
-                pins.push_back({ node.id, "trigger:out", true, false,
-                                 juce::Colour(0xFFFF7A18), { node.pos.x + node.size.x, trigY },
-                                 { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-
-                // Modulazioni CV (Velocity, Pressione) -> Triangoli orientati verso destra
-                float my = node.isIntegratedMic ? (node.pos.y + 147.0f) : (node.pos.y + 141.0f);
-                for (const auto& m : node.modOutputs)
-                {
-                    pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
-                                     { node.pos.x + node.size.x, my },
-                                     { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
-                    my += 32.0f;
-                }
-            }
-            else if (node.isIntegratedCamera || node.id == "hw-webcam" || node.id == "hw-eye")
-            {
-                // Modulo Occhio: Uscite assi MediaPipe
-                float my = node.pos.y + 138.0f + 12.5f;
-                for (const auto& m : node.modOutputs)
-                {
-                    pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
-                                     { node.pos.x + node.size.x, my },
-                                     { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
-                    my += 30.0f;
-                }
-            }
-            else
-            {
-                float my = node.pos.y + 118.0f;
-                for (const auto& m : node.modOutputs)
-                {
-                    pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
-                                     { node.pos.x + node.size.x, my },
-                                     { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
-                    my += 28.0f;
-                }
-            }
-        }
-        else if (node.type == NodeType::NestedEffect)
-        {
-            if (node.isVerticalFlow)
-            {
-                pins.push_back({ node.id, "audio:in",  false, false, MiMOLookAndFeel::fountainInk,
-                                 { node.pos.x + 29.0f, node.pos.y + node.size.y }, { 0.0f, 1.0f },
-                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
-                pins.push_back({ node.id, "audio:out", true,  false, MiMOLookAndFeel::fountainInk,
-                                 { node.pos.x + 29.0f, node.pos.y }, { 0.0f, -1.0f },
-                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
-            }
-            else
-            {
-                pins.push_back({ node.id, "audio:in",  false, false, MiMOLookAndFeel::fountainInk,
-                                 { node.pos.x, node.pos.y + 32.0f }, { -1.0f, 0.0f },
-                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
-                pins.push_back({ node.id, "audio:out", true,  false, MiMOLookAndFeel::fountainInk,
-                                 { node.pos.x + node.size.x, node.pos.y + 32.0f }, { 1.0f, 0.0f },
-                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
-            }
-        }
-        else if (node.type == NodeType::InstrumentNode)
-        {
-            // Presa Audio In (Cerchio)
-            pins.push_back({ node.id, "audio:in", false, false, MiMOLookAndFeel::fountainInk,
-                             { node.pos.x, node.pos.y + 32.0f }, { -1.0f, 0.0f },
-                             MiMOLookAndFeel::PinShapeType::AudioCircle });
-            // Presa Trigger In dedicata (Rombo Arancio Fiamma)
-            pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
-                             { node.pos.x, node.pos.y + 58.0f }, { -1.0f, 0.0f },
-                             MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-            // Presa Audio Out (Cerchio)
-            pins.push_back({ node.id, "audio:out", true, false, MiMOLookAndFeel::fountainInk,
-                             { node.pos.x + node.size.x, node.pos.y + 32.0f }, { 1.0f, 0.0f },
-                             MiMOLookAndFeel::PinShapeType::AudioCircle });
-        }
-        else if (node.type == NodeType::MasterOut)
-        {
-            pins.push_back({ node.id, "audio:in", false, false, MiMOLookAndFeel::fountainInk,
-                             { node.pos.x, node.pos.y + 32.0f }, { -1.0f, 0.0f },
-                             MiMOLookAndFeel::PinShapeType::AudioCircle });
-        }
-    }
-
-    // Pin di ingresso modulazione sul bordo inferiore sotto a ciascuna manopola esposta
-    for (const auto& kh : collectCanvasKnobs())
-    {
-        for (const auto& n : nodes)
-        {
-            if (n.id == kh.nodeId)
-            {
-                const juce::String pinId = "param:" + kh.blockId + "." + kh.paramKey;
-                juce::Colour pinCol = isDarkMode ? juce::Colour(0xFF70757E) : juce::Colour(0xFFA09B91);
-                for (const auto& c : cables)
-                {
-                    if (c.targetNodeId == kh.nodeId && c.targetPinId == pinId)
-                    {
-                        pinCol = c.colour;
-                        break;
-                    }
-                }
-
-                pins.push_back({ kh.nodeId, pinId, false, true, pinCol,
-                                 { kh.worldBounds.getCentreX(), n.pos.y + n.size.y },
-                                 { 0.0f, 1.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
-                break;
-            }
-        }
-    }
-
-    return pins;
-}
-
-juce::Point<float> MainComponent::getPinWorldPos(const juce::String& nodeId, const juce::String& pinId) const
-{
-    for (const auto& p : collectAllPins())
-        if (p.nodeId == nodeId && p.pinId == pinId)
-            return p.worldPos;
-    return {};
-}
-
-juce::Point<float> MainComponent::getPinNormal(const juce::String& nodeId, const juce::String& pinId) const
-{
-    for (const auto& p : collectAllPins())
-        if (p.nodeId == nodeId && p.pinId == pinId)
-            return p.normal;
-    return { 0.0f, 0.0f };
-}
-
-juce::String MainComponent::findHwModuleAt(juce::Point<float> worldPt) const
-{
-    for (const auto& n : nodes)
-        if (n.type == NodeType::HardwareModule)
-            if (juce::Rectangle<float>(n.pos.x, n.pos.y, n.size.x, n.size.y).contains(worldPt))
-                return n.id;
-    return {};
-}
-
-juce::String MainComponent::findAudioCableNear(juce::Point<float> worldPt, float maxDist) const
-{
-    float closestDist = maxDist;
-    juce::String closestId;
-    const auto allPins = collectAllPins();
-
-    auto findPinPos = [&allPins](const juce::String& nId, const juce::String& pId) -> juce::Point<float>
-    {
-        for (const auto& p : allPins)
-            if (p.nodeId == nId && p.pinId == pId)
-                return p.worldPos;
-        return {};
-    };
-
-    for (const auto& c : cables)
-    {
-        const auto p1 = findPinPos(c.sourceNodeId, c.sourcePinId);
-        const auto p2 = findPinPos(c.targetNodeId, c.targetPinId);
-        const float dx = p2.x - p1.x;
-        const float dy = p2.y - p1.y;
-        const float lenSq = dx * dx + dy * dy;
-        if (lenSq < 1.0f)
-            continue;
-
-        const float t = juce::jlimit(0.0f, 1.0f, ((worldPt.x - p1.x) * dx + (worldPt.y - p1.y) * dy) / lenSq);
-        const juce::Point<float> proj = p1 + juce::Point<float>(dx * t, dy * t);
-        const float d = worldPt.getDistanceFrom(proj);
-        if (d < closestDist)
-        {
-            closestDist = d;
-            closestId = c.id;
-        }
-    }
-    return closestId;
 }
 
 void MainComponent::insertEffectOnCable(const CatalogItem& fx, const juce::String& cableId, juce::Point<float> worldPos)
@@ -4226,7 +2957,11 @@ void MainComponent::paintStudioCanvas(juce::Graphics& g)
         outNorm = {};
     };
 
-    // 1. Disegna tutti i Cavi
+    // 1. Disegna tutti i Cavi con evidenziazione selettiva del modulo che ha scattato il colpo
+    const int trigSrc = lastTriggerSourceCode.load();
+    const float pulseVal = triggerPulseAlpha.load();
+    const bool isPulse = (pulseVal > 0.08f);
+
     for (size_t i = 0; i < cables.size(); ++i)
     {
         const auto& c = cables[i];
@@ -4234,16 +2969,41 @@ void MainComponent::paintStudioCanvas(juce::Graphics& g)
         findPinInfo(c.sourceNodeId, c.sourcePinId, p1, n1);
         findPinInfo(c.targetNodeId, c.targetPinId, p2, n2);
         const bool isHover = (c.id == hoveredAudioCableId || c.id == selectedCableId);
-        const bool isPulse = (triggerPulseAlpha.load() > 0.08f);
-        const bool isTrigCable = (c.isTrigger || c.sourcePinId == "trigger:out" || c.targetPinId == "trigger:in");
+        const bool isTrigCable = (c.isTrigger || c.sourcePinId.startsWith("trigger:") || c.targetPinId.startsWith("trigger:"));
+
+        bool cableMatches = false;
+        if (isPulse)
+        {
+            if (trigSrc == 1) // hw-drum
+            {
+                if (c.sourceNodeId == "hw-drum" || (c.sourceNodeId == "rockpi" && c.sourcePinId == "audio:p1"))
+                    cableMatches = true;
+            }
+            else if (trigSrc == 2) // hw-mic
+            {
+                if (c.sourceNodeId == "hw-mic" || (c.sourceNodeId == "rockpi" && c.sourcePinId == "audio:p4"))
+                    cableMatches = true;
+            }
+            else if (trigSrc == 3) // hw-eye
+            {
+                if (c.sourceNodeId == "hw-eye" || c.sourceNodeId == "hw-webcam" || (c.sourceNodeId == "rockpi" && c.sourcePinId == "audio:p2"))
+                    cableMatches = true;
+            }
+            else if (trigSrc == 4) // instrument
+            {
+                if (c.targetNodeId == selectedNodeId || c.sourceNodeId == selectedNodeId)
+                    cableMatches = true;
+            }
+        }
+
         MiMOLookAndFeel::drawInkCable(g, p1, p2, c.freehandNorm,
                                       static_cast<int>(i) * 37 + 11, boilTick,
                                       c.isModulation,
-                                      isPulse ? (c.isModulation ? c.colour : MiMOLookAndFeel::crayonSage) : c.colour,
-                                      isHover || isPulse, false,
+                                      c.colour,
+                                      isHover, false,
                                       n1, n2,
                                       isTrigCable,
-                                      isTrigCable ? triggerPulseAlpha.load() : 0.0f);
+                                      (cableMatches && isTrigCable) ? pulseVal : 0.0f);
     }
 
     // 2. Cavo in fase di disegno a mano libera
@@ -4286,7 +3046,14 @@ void MainComponent::paintStudioCanvas(juce::Graphics& g)
         const bool isValidTarget = (dragMode == DragMode::DrawCable && pin.nodeId != cableSourceNodeId &&
                                     (pin.isOutput != cableSourceIsOutput) && typeCompatible);
 
-        const bool isFiring = (pinIsTrig && triggerPulseAlpha.load() > 0.08f);
+        bool pinMatches = false;
+        if (isPulse)
+        {
+            if (trigSrc == 1 && pin.nodeId == "hw-drum") pinMatches = true;
+            else if (trigSrc == 2 && (pin.nodeId == "hw-mic")) pinMatches = true;
+            else if (trigSrc == 3 && (pin.nodeId == "hw-eye" || pin.nodeId == "hw-webcam")) pinMatches = true;
+        }
+        const bool isFiring = (pinIsTrig && pinMatches && isPulse);
 
         MiMOLookAndFeel::drawPinJack(g, pin.worldPos, r, pin.shapeType, pin.colour,
                                      isHovered, isSelected, isValidTarget, isFiring);
@@ -7515,38 +6282,32 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
             selectedCableId.clear();
 
             // Controlla se questo pin ha già un cavo collegato:
-            // "prendendo quel nodo e lasciandolo nel nulla si stacchi"
+            // Regola: gli OUTPUT possono avere cavi multipli (fan-out illimitato) e creano SEMPRE un nuovo cavo.
+            // Solo dagli INPUT dei moduli stacchiamo il cavo preesistente per poterlo riposizionare o cancellare nel vuoto!
             int foundCableIdx = -1;
-            for (int ci = static_cast<int>(cables.size()) - 1; ci >= 0; --ci)
+            if (!pin.isOutput)
             {
-                const auto& c = cables[static_cast<size_t>(ci)];
-                if ((pin.isOutput && c.sourceNodeId == pin.nodeId && c.sourcePinId == pin.pinId) ||
-                    (!pin.isOutput && c.targetNodeId == pin.nodeId && c.targetPinId == pin.pinId))
+                for (int ci = static_cast<int>(cables.size()) - 1; ci >= 0; --ci)
                 {
-                    foundCableIdx = ci;
-                    break;
+                    const auto& c = cables[static_cast<size_t>(ci)];
+                    if (c.targetNodeId == pin.nodeId && c.targetPinId == pin.pinId)
+                    {
+                        foundCableIdx = ci;
+                        break;
+                    }
                 }
             }
 
             if (foundCableIdx >= 0)
             {
-                // Stacca il cavo e permetti di trascinarlo per ricollegarlo altrove o nel vuoto
+                // Stacca il cavo dall'input e permetti di trascinarlo per ricollegarlo altrove o cancellarlo nel vuoto
                 unhookedOriginalCable = cables[static_cast<size_t>(foundCableIdx)];
                 isUnhookingExistingCable = true;
                 unhookDragStartWorld = pin.worldPos;
 
-                if (pin.isOutput)
-                {
-                    cableSourceNodeId = unhookedOriginalCable.targetNodeId;
-                    cableSourcePinId = unhookedOriginalCable.targetPinId;
-                    cableSourceIsOutput = false;
-                }
-                else
-                {
-                    cableSourceNodeId = unhookedOriginalCable.sourceNodeId;
-                    cableSourcePinId = unhookedOriginalCable.sourcePinId;
-                    cableSourceIsOutput = true;
-                }
+                cableSourceNodeId = unhookedOriginalCable.sourceNodeId;
+                cableSourcePinId = unhookedOriginalCable.sourcePinId;
+                cableSourceIsOutput = true;
 
                 cableSourceIsMod = unhookedOriginalCable.isModulation;
                 cableSourceIsTrigger = unhookedOriginalCable.isTrigger || (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond);
@@ -7770,6 +6531,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                                                 else if (item.pinId.endsWith("_rng")) subVoice = 2;
                                                 else if (item.pinId.endsWith("_pky")) subVoice = 3;
                                                 audioEngine.triggerFromSource(n.id, subVoice, 1.0f, isSec);
+                                                lastTriggerSourceCode.store(3);
                                                 triggerPulseAlpha.store(1.0f);
                                                 repaint();
                                                 return;
@@ -7797,6 +6559,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                                             return;
 
                                         audioEngine.triggerFromSource(n.id, 0, 1.0f, false);
+                                        lastTriggerSourceCode.store(1);
                                         triggerPulseAlpha.store(1.0f);
                                         repaint();
                                         return;
@@ -7818,6 +6581,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 if (testBtn.contains(worldPt))
                 {
                     audioEngine.triggerFromSource(n.id, 0, 1.0f);
+                    lastTriggerSourceCode.store(n.id == "hw-mic" ? 2 : (n.id == "hw-drum" ? 1 : 3));
                     triggerPulseAlpha.store(1.0f);
                     repaint();
                     return;
@@ -7846,6 +6610,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 selectedPinNodeId.clear();
                 selectedPinId.clear();
                 audioEngine.triggerInstrument(n.id, 0, 0.9f);
+                lastTriggerSourceCode.store(4);
                 triggerPulseAlpha.store(1.0f);
                 repaint();
             }
@@ -8069,17 +6834,21 @@ void MainComponent::mouseUp(const juce::MouseEvent& e)
                 const bool isTrig = cableSourceIsTrigger || pinIsTrig;
                 const juce::Colour cableCol = isTrig ? juce::Colour(0xFFFF7A18) : (isMod ? cableSourceColour : MiMOLookAndFeel::fountainInk);
 
-                // CRUCIALE: "quando si collega un modulo ad un'altro nodo quello prima deve essere cancellato"
+                // Regola: l'input (dstNode, dstPin) riceve al massimo un solo cavo.
+                // Se c'era già un cavo su questo ingresso, viene sostituito.
+                // L'output (srcNode, srcPin) può invece avere cavi multipli (fan-out illimitato verso più moduli)!
                 cables.erase(std::remove_if(cables.begin(), cables.end(),
                     [&](const CanvasCable& c) {
                         // Cancella qualsiasi cavo preesistente collegato all'ingresso di destinazione
                         if (c.targetNodeId == dstNode && c.targetPinId == dstPin)
                             return true;
-                        // Se non è un trigger out con fan-out, sostituisci il cavo uscente dalla stessa sorgente
-                        if (!isTrig && c.sourceNodeId == srcNode && c.sourcePinId == srcPin)
+                        // Prevenzione cavi identici duplicati tra la stessa coppia di pin
+                        if (c.sourceNodeId == srcNode && c.sourcePinId == srcPin &&
+                            c.targetNodeId == dstNode && c.targetPinId == dstPin)
                             return true;
-                        // Prevenzione loop o collegamenti identici
-                        if (c.sourceNodeId == dstNode && c.sourcePinId == dstPin && c.targetNodeId == srcNode && c.targetPinId == srcPin)
+                        // Prevenzione loop inversi
+                        if (c.sourceNodeId == dstNode && c.sourcePinId == dstPin &&
+                            c.targetNodeId == srcNode && c.targetPinId == srcPin)
                             return true;
                         return false;
                     }),
@@ -9013,417 +7782,14 @@ void MainComponent::drawModernFlatEyeModal(juce::Graphics& g)
 
 void MainComponent::drawHandSkeleton(juce::Graphics& g, juce::Rectangle<float> bounds, const mimo::HandTrackingState& state, bool overVideo)
 {
-    if (!overVideo)
-    {
-        g.setColour(MiMOLookAndFeel::paperBg);
-        g.fillRoundedRectangle(bounds, 6.0f);
-        g.setColour(MiMOLookAndFeel::fountainInk.withAlpha(0.35f));
-        g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
-    }
-
-    if (!state.hasHand)
-    {
-        g.setColour(overVideo ? juce::Colours::white.withAlpha(0.85f) : MiMOLookAndFeel::inkMuted);
-        g.setFont(juce::Font(10.0f, juce::Font::bold));
-        g.drawText(overVideo ? "Mostra le mani alla videocamera (MediaPipe IA pronto)..."
-                             : "In attesa delle mani nell'inquadratura...",
-                   bounds.reduced(6.0f).toNearestInt(), juce::Justification::centred);
-        return;
-    }
-
-    const float pad = overVideo ? 0.0f : std::min(14.0f, bounds.getHeight() * 0.10f);
-    const float innerW = bounds.getWidth() - pad * 2.0f;
-    const float innerH = bounds.getHeight() - pad * 2.0f;
-
-    auto drawSingleHand = [&](const std::array<mimo::HandLandmark, 21>& lms,
-                              const juce::String& handedness,
-                              float palmZ,
-                              const std::array<bool, 4>& pinchesAct,
-                              bool isSecondary)
-    {
-        const bool handEnabled = isHandEnabled(isSecondary);
-        const bool trigsEnabled = isHandTriggersEnabled(isSecondary);
-        const float alphaMult = handEnabled ? 1.0f : 0.22f;
-
-        std::array<juce::Point<float>, 21> pts;
-        for (size_t i = 0; i < 21; ++i)
-        {
-            pts[i] = {
-                bounds.getX() + pad + lms[i].x * innerW,
-                bounds.getY() + pad + lms[i].y * innerH
-            };
-        }
-
-        const juce::Point<float> palmPt = (pts[0] + pts[9]) * 0.5f;
-
-        const bool isRight = (handedness != "Left");
-        const auto baseBoneColour = isRight ? (isSecondary ? MiMOLookAndFeel::crayonSage : MiMOLookAndFeel::crayonCyan)
-                                            : (isSecondary ? MiMOLookAndFeel::crayonCherry : MiMOLookAndFeel::crayonPeach);
-        const auto boneColour = baseBoneColour.withMultipliedAlpha(alphaMult);
-
-        // Linee guida del palmo
-        g.setColour(boneColour.withAlpha((overVideo ? 0.28f : 0.18f) * alphaMult));
-        g.drawLine(bounds.getX() + 2.0f, palmPt.y, bounds.getRight() - 2.0f, palmPt.y, 1.0f);
-        g.drawLine(palmPt.x, bounds.getY() + 2.0f, palmPt.x, bounds.getBottom() - 2.0f, 1.0f);
-
-        if (eyePhalanxDetail == 0)
-        {
-            // MODALITA 0: Solo Centro Palmo 3D (1 Punto)
-            const float zRadius = 10.0f + palmZ * 18.0f;
-            g.setColour(boneColour.withAlpha(0.35f * alphaMult));
-            g.fillEllipse(palmPt.x - zRadius, palmPt.y - zRadius, zRadius * 2.0f, zRadius * 2.0f);
-            g.setColour(boneColour);
-            g.drawEllipse(palmPt.x - zRadius, palmPt.y - zRadius, zRadius * 2.0f, zRadius * 2.0f, 2.2f);
-            g.setColour(MiMOLookAndFeel::crayonOchre.withMultipliedAlpha(alphaMult));
-            g.fillEllipse(palmPt.x - 5.5f, palmPt.y - 5.5f, 11.0f, 11.0f);
-        }
-        else if (eyePhalanxDetail == 1)
-        {
-            // MODALITA 1: Palmo + 5 Punte Dita (6 Punti)
-            static const size_t tipIndices[5] = { 4, 8, 12, 16, 20 };
-            if (overVideo)
-            {
-                g.setColour(juce::Colours::black.withAlpha(0.65f * alphaMult));
-                for (size_t ti : tipIndices)
-                    g.drawLine(palmPt.x, palmPt.y, pts[ti].x, pts[ti].y, 4.2f);
-            }
-            g.setColour(boneColour.withAlpha(0.92f * alphaMult));
-            for (size_t ti : tipIndices)
-                g.drawLine(palmPt.x, palmPt.y, pts[ti].x, pts[ti].y, 2.4f);
-
-            g.setColour(boneColour);
-            g.fillEllipse(palmPt.x - 5.5f, palmPt.y - 5.5f, 11.0f, 11.0f);
-            for (size_t ti : tipIndices)
-            {
-                g.setColour(MiMOLookAndFeel::crayonOchre.withMultipliedAlpha(alphaMult));
-                g.fillEllipse(pts[ti].x - 5.0f, pts[ti].y - 5.0f, 10.0f, 10.0f);
-                g.setColour((overVideo ? juce::Colours::black : MiMOLookAndFeel::fountainInk).withMultipliedAlpha(alphaMult));
-                g.drawEllipse(pts[ti].x - 5.0f, pts[ti].y - 5.0f, 10.0f, 10.0f, 1.3f);
-            }
-        }
-        else
-        {
-            // MODALITA 2: Completo a 21 Falangi (3 falangi per dito + base palmo)
-            static const int connections[][2] = {
-                {0, 1}, {1, 2}, {2, 3}, {3, 4},        // Pollice
-                {0, 5}, {5, 6}, {6, 7}, {7, 8},        // Indice
-                {5, 9}, {9, 10}, {10, 11}, {11, 12},   // Medio
-                {9, 13}, {13, 14}, {14, 15}, {15, 16}, // Anulare
-                {13, 17}, {17, 18}, {18, 19}, {19, 20},// Mignolo
-                {0, 17}                                // Base palmo
-            };
-
-            if (overVideo)
-            {
-                g.setColour(juce::Colours::black.withAlpha(0.65f * alphaMult));
-                for (const auto& conn : connections)
-                {
-                    g.drawLine(pts[static_cast<size_t>(conn[0])].x, pts[static_cast<size_t>(conn[0])].y,
-                               pts[static_cast<size_t>(conn[1])].x, pts[static_cast<size_t>(conn[1])].y, 4.2f);
-                }
-            }
-
-            g.setColour(boneColour.withAlpha(0.92f * alphaMult));
-            for (const auto& conn : connections)
-            {
-                g.drawLine(pts[static_cast<size_t>(conn[0])].x, pts[static_cast<size_t>(conn[0])].y,
-                           pts[static_cast<size_t>(conn[1])].x, pts[static_cast<size_t>(conn[1])].y, 2.4f);
-            }
-
-            for (size_t i = 0; i < 21; ++i)
-            {
-                const bool isTip = (i == 4 || i == 8 || i == 12 || i == 16 || i == 20);
-                const float r = isTip ? 4.8f : 3.2f;
-
-                g.setColour((isTip ? MiMOLookAndFeel::crayonOchre : boneColour).withMultipliedAlpha(alphaMult));
-                g.fillEllipse(pts[i].x - r, pts[i].y - r, r * 2.0f, r * 2.0f);
-                g.setColour((overVideo ? juce::Colours::black : MiMOLookAndFeel::fountainInk).withMultipliedAlpha(alphaMult));
-                g.drawEllipse(pts[i].x - r, pts[i].y - r, r * 2.0f, r * 2.0f, 1.2f);
-            }
-        }
-
-        if (eyePhalanxDetail >= 1)
-        {
-            static const int tipIdx[4] = { 8, 12, 16, 20 };
-            static const juce::Colour pinchColours[4] = {
-                MiMOLookAndFeel::crayonCyan,   // Indice
-                MiMOLookAndFeel::crayonSage,   // Medio
-                MiMOLookAndFeel::crayonOchre,  // Anulare
-                MiMOLookAndFeel::crayonCherry  // Mignolo
-            };
-
-            for (int p = 0; p < 4; ++p)
-            {
-                if (pinchesAct[static_cast<size_t>(p)])
-                {
-                    const auto midPt = (pts[4] + pts[static_cast<size_t>(tipIdx[p])]) * 0.5f;
-                    const auto pCol = trigsEnabled ? pinchColours[p] : juce::Colour(0xFF757B85);
-                    g.setColour(pCol.withAlpha(trigsEnabled ? 0.55f : 0.20f));
-                    g.fillEllipse(midPt.x - 11.0f, midPt.y - 11.0f, 22.0f, 22.0f);
-                    g.setColour(overVideo ? juce::Colours::white.withAlpha(trigsEnabled ? 0.9f : 0.35f) : MiMOLookAndFeel::fountainInk.withAlpha(trigsEnabled ? 0.9f : 0.35f));
-                    g.drawEllipse(midPt.x - 11.0f, midPt.y - 11.0f, 22.0f, 22.0f, 1.6f);
-                }
-            }
-        }
-
-        if (!handEnabled)
-        {
-            juce::Rectangle<float> tagBox(palmPt.x - 30.0f, palmPt.y - 9.0f, 60.0f, 18.0f);
-            g.setColour(juce::Colours::black.withAlpha(0.70f));
-            g.fillRoundedRectangle(tagBox, 4.0f);
-            g.setColour(juce::Colour(0xFFFF5252));
-            g.drawRoundedRectangle(tagBox, 4.0f, 1.0f);
-            g.setFont(juce::Font(9.0f, juce::Font::bold));
-            g.setColour(juce::Colours::white);
-            g.drawText("SPENTA", tagBox.toNearestInt(), juce::Justification::centred);
-        }
-    };
-
-    // Disegna la Mano Primaria
-    drawSingleHand(state.landmarks, state.handedness, state.palmZ, state.pinchActive, false);
-
-    // Disegna la Mano Secondaria (se presente contemporaneamente)
-    if (state.hasSecondaryHand)
-    {
-        drawSingleHand(state.secondaryLandmarks, state.secondaryHandedness, state.secondaryPalmZ, state.secondaryPinchActive, true);
-    }
-
-    // Barra telemetria compatta in sovrimpressione in basso
-    if (bounds.getHeight() >= 70.0f)
-    {
-        const juce::Rectangle<float> hudBar(bounds.getX() + 3.0f, bounds.getBottom() - 17.0f, bounds.getWidth() - 6.0f, 15.0f);
-        g.setColour(juce::Colours::black.withAlpha(overVideo ? 0.62f : 0.40f));
-        g.fillRoundedRectangle(hudBar, 4.0f);
-        g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(8.5f, juce::Font::bold));
-
-        const bool dxOn = isHandEnabled(false);
-        const bool sxOn = isHandEnabled(true);
-        const bool dxTrigOn = isHandTriggersEnabled(false);
-        const bool sxTrigOn = isHandTriggersEnabled(true);
-
-        juce::String hudTxt;
-        if (state.hasSecondaryHand)
-        {
-            const juce::String s1 = (state.handedness == "Left")
-                ? (sxOn ? (sxTrigOn ? "SX: ON" : "SX: EFFETTI") : "SX: OFF")
-                : (dxOn ? (dxTrigOn ? "DX: ON" : "DX: EFFETTI") : "DX: OFF");
-
-            const juce::String s2 = (state.secondaryHandedness == "Right")
-                ? (dxOn ? (dxTrigOn ? "DX: ON" : "DX: EFFETTI") : "DX: OFF")
-                : (sxOn ? (sxTrigOn ? "SX: ON" : "SX: EFFETTI") : "SX: OFF");
-
-            hudTxt = s1 + " | " + s2 + "  -  FPS: " + juce::String(static_cast<int>(state.fps + 0.5f));
-        }
-        else
-        {
-            const bool isLeft = (state.handedness == "Left");
-            const bool curOn = isLeft ? sxOn : dxOn;
-            const bool curTrig = isLeft ? sxTrigOn : dxTrigOn;
-            const juce::String sideLabel = isLeft ? "SX" : "DX";
-            hudTxt = sideLabel + (curOn ? (curTrig ? ": ATTIVA" : ": SOLO EFFETTI") : ": SPENTA")
-                   + "  -  X:" + juce::String(state.palmX, 2)
-                   + " Y:" + juce::String(state.palmY, 2)
-                   + " Z:" + juce::String(state.palmZ, 2)
-                   + " Pugno:" + juce::String(juce::roundToInt(state.fist * 100.0f)) + "%"
-                   + " Rot:" + juce::String(juce::roundToInt(state.handTilt * 100.0f)) + "%";
-        }
-        g.drawText(hudTxt, hudBar.toNearestInt(), juce::Justification::centred);
-    }
+    MiMOEyeDrawer::drawHandSkeleton(g, bounds, state, overVideo,
+                                    isHandEnabled(false), isHandEnabled(true),
+                                    isHandTriggersEnabled(false), isHandTriggersEnabled(true));
 }
 
 void MainComponent::drawQrCode(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> bounds)
 {
-    g.setColour(juce::Colours::white);
-    g.fillRoundedRectangle(bounds, 8.0f);
-    g.setColour(MiMOLookAndFeel::fountainInk);
-    g.drawRoundedRectangle(bounds, 8.0f, 1.4f);
-
-    if (text.isEmpty())
-        return;
-
-    try
-    {
-        qrcodegen::QrCode qr = qrcodegen::QrCode::encodeText(text.toRawUTF8(), qrcodegen::QrCode::Ecc::MEDIUM);
-        const int qrSize = qr.getSize();
-        if (qrSize <= 0)
-            return;
-
-        const float quietZone = 2.0f;
-        const float totalModules = static_cast<float>(qrSize) + quietZone * 2.0f;
-        const float moduleSize = bounds.getWidth() / totalModules;
-
-        g.setColour(juce::Colour(0xFF141413));
-        for (int y = 0; y < qrSize; ++y)
-        {
-            for (int x = 0; x < qrSize; ++x)
-            {
-                if (qr.getModule(x, y))
-                {
-                    const float mx = bounds.getX() + (static_cast<float>(x) + quietZone) * moduleSize;
-                    const float my = bounds.getY() + (static_cast<float>(y) + quietZone) * moduleSize;
-                    g.fillRect(mx, my, moduleSize + 0.4f, moduleSize + 0.4f);
-                }
-            }
-        }
-
-        const float logoSize = bounds.getWidth() * 0.18f;
-        const auto logoBox = bounds.withSizeKeepingCentre(logoSize, logoSize);
-        g.setColour(juce::Colours::white);
-        g.fillRoundedRectangle(logoBox, 4.0f);
-        g.setColour(juce::Colour(0xFF141413));
-        g.drawRoundedRectangle(logoBox, 4.0f, 1.4f);
-
-        // Icona Occhio Vettoriale al centro del QR
-        const float cx = logoBox.getCentreX();
-        const float cy = logoBox.getCentreY();
-        juce::Path eyeP;
-        eyeP.startNewSubPath(cx - 8.0f, cy);
-        eyeP.quadraticTo(cx, cy - 5.5f, cx + 8.0f, cy);
-        eyeP.quadraticTo(cx, cy + 5.5f, cx - 8.0f, cy);
-        eyeP.closeSubPath();
-        g.strokePath(eyeP, juce::PathStrokeType(1.4f));
-        g.fillEllipse(cx - 2.5f, cy - 2.5f, 5.0f, 5.0f);
-    }
-    catch (...)
-    {
-    }
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalBounds() const
-{
-    const float mw = std::min(780.0f, static_cast<float>(getWidth()) - 36.0f);
-    const float mh = std::min(535.0f, static_cast<float>(getHeight()) - 36.0f);
-    return { (static_cast<float>(getWidth()) - mw) * 0.5f,
-             (static_cast<float>(getHeight()) - mh) * 0.5f,
-             mw, mh };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalCloseBounds() const
-{
-    const auto mb = getEyeModalBounds();
-    return { mb.getRight() - 36.0f, mb.getY() + 14.0f, 22.0f, 22.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalTabBounds(int tabIdx) const
-{
-    const auto mb = getEyeModalBounds();
-    const float tabW = 265.0f;
-    return { mb.getX() + 20.0f + static_cast<float>(tabIdx) * (tabW + 10.0f), mb.getY() + 62.0f, tabW, 28.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalUrlButtonBounds() const
-{
-    const auto mb = getEyeModalBounds();
-    const float contentY = mb.getY() + 100.0f;
-    const float leftW = 275.0f;
-    const juce::Rectangle<float> leftPanel(mb.getX() + 18.0f, contentY, leftW, mb.getBottom() - contentY - 18.0f);
-    const juce::Rectangle<float> qrBox(leftPanel.getCentreX() - 75.0f, leftPanel.getY() + 10.0f, 150.0f, 150.0f);
-    const juce::Rectangle<float> urlPill(leftPanel.getX() + 12.0f, qrBox.getBottom() + 6.0f, leftPanel.getWidth() - 24.0f, 22.0f);
-    return { leftPanel.getX() + 12.0f, urlPill.getBottom() + 6.0f, leftPanel.getWidth() - 24.0f, 25.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalActivatePhoneButtonBounds() const
-{
-    const auto mb = getEyeModalBounds();
-    const float contentY = mb.getY() + 100.0f;
-    const float leftW = 275.0f;
-    const juce::Rectangle<float> leftPanel(mb.getX() + 18.0f, contentY, leftW, mb.getBottom() - contentY - 18.0f);
-    const auto urlBtn = getEyeModalUrlButtonBounds();
-    return { leftPanel.getX() + 12.0f, urlBtn.getBottom() + 6.0f, leftPanel.getWidth() - 24.0f, 26.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalHandFilterBounds(int filterIdx) const
-{
-    const auto mb = getEyeModalBounds();
-    const float contentY = mb.getY() + 100.0f;
-    const float contentH = mb.getBottom() - contentY - 18.0f;
-    const float leftW = 275.0f;
-    const juce::Rectangle<float> leftPanel(mb.getX() + 18.0f, contentY, leftW, contentH);
-    const juce::Rectangle<float> rightPanel(leftPanel.getRight() + 14.0f, contentY, mb.getRight() - leftPanel.getRight() - 32.0f, contentH);
-
-    const float cfgStartY = rightPanel.getY() + 10.0f + 22.0f + 8.0f + 152.0f + 8.0f;
-    const float startX = rightPanel.getX() + 162.0f;
-    const float availW = rightPanel.getRight() - 14.0f - startX;
-    const float btnW = (availW - 12.0f) / 3.0f;
-    return { startX + static_cast<float>(filterIdx) * (btnW + 6.0f), cfgStartY, btnW, 22.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalPhalanxBounds(int detailIdx) const
-{
-    const auto mb = getEyeModalBounds();
-    const float contentY = mb.getY() + 100.0f;
-    const float contentH = mb.getBottom() - contentY - 18.0f;
-    const float leftW = 275.0f;
-    const juce::Rectangle<float> leftPanel(mb.getX() + 18.0f, contentY, leftW, contentH);
-    const juce::Rectangle<float> rightPanel(leftPanel.getRight() + 14.0f, contentY, mb.getRight() - leftPanel.getRight() - 32.0f, contentH);
-
-    const float phalY = rightPanel.getY() + 10.0f + 22.0f + 8.0f + 152.0f + 8.0f + 28.0f;
-    const float startX = rightPanel.getX() + 162.0f;
-    const float availW = rightPanel.getRight() - 14.0f - startX;
-    const float btnW = (availW - 12.0f) / 3.0f;
-    return { startX + static_cast<float>(detailIdx) * (btnW + 6.0f), phalY, btnW, 22.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalGestureBounds(int gestureIdx) const
-{
-    const auto mb = getEyeModalBounds();
-    const float contentY = mb.getY() + 100.0f;
-    const float contentH = mb.getBottom() - contentY - 18.0f;
-    const float leftW = 275.0f;
-    const juce::Rectangle<float> leftPanel(mb.getX() + 18.0f, contentY, leftW, contentH);
-    const juce::Rectangle<float> rightPanel(leftPanel.getRight() + 14.0f, contentY, mb.getRight() - leftPanel.getRight() - 32.0f, contentH);
-
-    const float gestGridY = rightPanel.getY() + 10.0f + 22.0f + 8.0f + 152.0f + 8.0f + 28.0f + 26.0f + 18.0f;
-    const float colW = (rightPanel.getWidth() - 28.0f - 8.0f) * 0.5f;
-    const int col = gestureIdx % 2;
-    const int row = gestureIdx / 2;
-    return { rightPanel.getX() + 14.0f + static_cast<float>(col) * (colW + 8.0f),
-             gestGridY + static_cast<float>(row) * 28.0f,
-             colW, 24.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalPinchTestBounds(int pinchIdx) const
-{
-    const auto mb = getEyeModalBounds();
-    const float contentY = mb.getY() + 100.0f;
-    const float contentH = mb.getBottom() - contentY - 18.0f;
-    const float leftW = 275.0f;
-    const juce::Rectangle<float> leftPanel(mb.getX() + 18.0f, contentY, leftW, contentH);
-    const juce::Rectangle<float> rightPanel(leftPanel.getRight() + 14.0f, contentY, mb.getRight() - leftPanel.getRight() - 32.0f, contentH);
-
-    const float testY = rightPanel.getBottom() - 36.0f;
-    const float btnW = (rightPanel.getWidth() - 28.0f - 18.0f) / 4.0f;
-    return { rightPanel.getX() + 14.0f + static_cast<float>(pinchIdx) * (btnW + 6.0f), testY, btnW, 26.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeCardConfigButtonBounds(const juce::Rectangle<float>& nodeBox)
-{
-    return { nodeBox.getRight() - 50.0f, nodeBox.getY() + 7.0f, 22.0f, 18.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeCardViewToggleButtonBounds(const juce::Rectangle<float>& nodeBox)
-{
-    return { nodeBox.getRight() - 84.0f, nodeBox.getY() + 7.0f, 30.0f, 18.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalCameraOptionBounds(int optIdx) const
-{
-    const auto mb = getEyeModalBounds();
-    const float contentY = mb.getY() + 100.0f;
-    const float leftW = 275.0f;
-    const juce::Rectangle<float> leftPanel(mb.getX() + 18.0f, contentY, leftW, mb.getBottom() - contentY - 18.0f);
-    const float startY = leftPanel.getY() + 34.0f + static_cast<float>(optIdx) * 29.0f;
-    return { leftPanel.getX() + 12.0f, startY, leftPanel.getWidth() - 24.0f, 25.0f };
-}
-
-juce::Rectangle<float> MainComponent::getEyeModalViewToggleBounds() const
-{
-    const auto mb = getEyeModalBounds();
-    const float contentY = mb.getY() + 100.0f;
-    const float leftW = 275.0f;
-    const juce::Rectangle<float> leftPanel(mb.getX() + 18.0f, contentY, leftW, mb.getBottom() - contentY - 18.0f);
-    return { leftPanel.getX() + 12.0f, leftPanel.getY() + 185.0f, leftPanel.getWidth() - 24.0f, 26.0f };
+    MiMOEyeDrawer::drawQrCode(g, text, bounds);
 }
 
 } // namespace mimo

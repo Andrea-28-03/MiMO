@@ -7,8 +7,10 @@
 #endif
 #include <juce_video/juce_video.h>
 #include "MiMOLookAndFeel.h"
+#include "CanvasGraph.h"
+#include "MiMOEyeDrawer.h"
+#include "../Devices/HardwareWorkers.h"
 #include "../Networking/MiMOEyeServer.h"
-#include "../Utils/qrcodegen.hpp"
 #include "../Audio/AudioEngine.h"
 #include <vector>
 #include <atomic>
@@ -24,6 +26,30 @@ class MainComponent : public juce::Component,
                       public juce::DarkModeSettingListener
 {
 public:
+    friend class MicWorker;
+    friend class CameraWorker;
+
+    // Type aliases per compatibilità retroattiva con i tipi estratti
+    using VideoSourceItem = mimo::VideoSourceItem;
+    using KnobParam = mimo::KnobParam;
+    using InnerFaustBlock = mimo::InnerFaustBlock;
+    using ModOutputDef = mimo::ModOutputDef;
+    using NodeOutputDef = mimo::NodeOutputDef;
+    using NodeOutputGroup = mimo::NodeOutputGroup;
+    using NodeType = mimo::NodeType;
+    using CanvasNode = mimo::CanvasNode;
+    using CanvasCable = mimo::CanvasCable;
+    using GraphSnapshot = mimo::GraphSnapshot;
+    using CatalogItem = mimo::CatalogItem;
+    using PolaroidItem = mimo::PolaroidItem;
+    using PinHit = mimo::PinHit;
+    using KnobHit = mimo::KnobHit;
+    using ActiveTab = mimo::ActiveTab;
+    using LooperState = mimo::LooperState;
+    using DragMode = mimo::DragMode;
+    using HwState = mimo::HwState;
+    using CameraTrackingMode = mimo::CameraTrackingMode;
+
     MainComponent();
     ~MainComponent() override;
 
@@ -63,154 +89,8 @@ private:
     juce::Image paperTextureCache;
 
     // =========================================================================
-    // Strutture Dati del Grafo a Nodi (STUDIO & Nodi Nested)
-    // =========================================================================
-    struct KnobParam
-    {
-        juce::String key;
-        juce::String label;
-        float minVal = 0.0f;
-        float maxVal = 100.0f;
-        float value = 50.0f;
-        float defaultVal = 50.0f;
-        juce::String unit;
-        bool isExposed = true;
-
-        float getNormalized() const;
-        void setFromNormalized(float norm);
-        juce::String getFormattedValue() const;
-    };
-
-    struct InnerFaustBlock
-    {
-        juce::String id;
-        juce::String label;
-        juce::String faustCode;
-        juce::Colour colour;
-        bool isLfo = false;
-        juce::Point<float> pos;
-        std::vector<KnobParam> params;
-    };
-
-    struct ModOutputDef
-    {
-        juce::String key;
-        juce::String label;
-        juce::Colour colour;
-    };
-
-    struct NodeOutputDef
-    {
-        juce::String pinId;       // es. "mod:x", "trigger:out", "trigger:pinch_idx"
-        juce::String label;       // es. "Asse X (Orizz.)", "Pinch Indice"
-        juce::Colour colour;      // es. crayonCyan, crayonCherry, 0xFFFF7A18
-        bool isTrigger = false;   // true -> Diamond pin, false -> Tri pin
-        juce::String hint;        // es. "(tira verso manopola)", "(verso TRIG strumento)"
-    };
-
-    struct NodeOutputGroup
-    {
-        juce::String id;          // es. "eye_palm", "eye_fingers", "eye_pinches", "eye_sec"
-        juce::String name;        // es. "Palmo 3D (DX)", "Dita & Falangi (DX)"
-        juce::String parentGroup; // es. "eye_dx" o "eye_sx" (vuoto se gruppo radice)
-        bool isExpanded = false;  // Aperto o Chiuso a tendina
-        bool isEnabled = true;    // Abilitato o Disabilitato (Interruttore ON/OFF)
-        std::vector<NodeOutputDef> items;
-    };
-
-    enum class NodeType
-    {
-        RockPiCentral,
-        HardwareModule,
-        NestedEffect,
-        InstrumentNode,
-        MasterOut
-    };
-
-    struct CanvasNode
-    {
-        juce::String id;
-        NodeType type = NodeType::HardwareModule;
-        juce::String label;
-        juce::String subtitle;
-        juce::String portBadge;
-        juce::Point<float> pos; // Coordinate correnti nel Canvas Infinito
-        juce::Point<float> targetPos; // Coordinate target per l'allargamento fluido
-        bool isAnimatingPos = false;
-        juce::Point<float> size;
-        juce::Colour crayonColour = juce::Colours::transparentBlack;
-        bool hasInstrument = false;
-        juce::String instrumentName;
-        juce::String instrumentEngine;
-        std::vector<ModOutputDef> modOutputs;
-        std::vector<NodeOutputGroup> outputGroups; // Gruppi a tendina espandibili / collassabili
-        std::vector<InnerFaustBlock> innerBlocks;
-        std::vector<KnobParam> directParams; // Usato da MasterOut
-        bool isVerticalFlow = false; // Se true: audio:in dal basso, audio:out dall'alto (flusso verticale modulo -> MIMO)
-        bool isIntegratedMic = false;
-        bool isIntegratedCamera = false;
-    };
-
-    struct CanvasCable
-    {
-        juce::String id;
-        juce::String sourceNodeId;
-        juce::String sourcePinId;
-        juce::String targetNodeId;
-        juce::String targetPinId;
-        bool isModulation = false;
-        juce::Colour colour = MiMOLookAndFeel::fountainInk;
-        std::vector<juce::Point<float>> freehandNorm;
-        bool isTrigger = false;
-    };
-
-    struct GraphSnapshot
-    {
-        std::vector<CanvasNode> nodes;
-        std::vector<CanvasCable> cables;
-    };
-
-    // =========================================================================
-    // Catalogo Sidebar Destra (Strumenti ed Effetti)
-    // =========================================================================
-    struct CatalogItem
-    {
-        juce::String id;
-        juce::String category;
-        juce::String name;
-        juce::String engine;
-        juce::String hint;
-        juce::Colour colour;
-        bool isEffect = false;
-        bool isIntegrated = false;
-        std::vector<InnerFaustBlock> templateBlocks;
-    };
-
-    // =========================================================================
-    // Sistema "Polaroid" & Workspace LIVE
-    // =========================================================================
-    struct PolaroidItem
-    {
-        juce::String id;
-        juce::String autoName;
-        juce::String title;
-        juce::String timestamp;
-        juce::String engineType = "hybrid"; // "sfizz", "faust", "hybrid"
-        int bpm = 112;
-        float rotationDeg = 0.0f;
-        std::vector<std::pair<juce::String, juce::Colour>> badges;
-        int nodeCount = 0;
-        int cableCount = 0;
-        int modCount = 0;
-        juce::Image previewImage;
-        GraphSnapshot snapshot;
-        bool isValid = false;
-    };
-
-    // =========================================================================
     // Stato Attivo dell'Applicazione
     // =========================================================================
-    enum class ActiveTab { Studio, Live, Community };
     ActiveTab activeTab = ActiveTab::Studio;
 
     // Pan & Zoom liberi sul Canvas Infinito
@@ -242,14 +122,9 @@ private:
     bool cameraSettingsOpen = false;
     float cameraSensitivity = 0.70f;
     bool cameraMirror = true;
-    enum class CameraTrackingMode { Motion, Light, Presence };
     CameraTrackingMode cameraTrackingMode = CameraTrackingMode::Motion;
 
-    // Dispositivi Hardware Reali (Microfono laptop & Webcam laptop)
-    enum class HwState { Off = 0, Starting = 1, Running = 2, Error = 3 };
-
     // --- Microfono + Sintesi Audio (gestiti su thread dedicato MicWorker: 0 ms blocco UI) ---
-    class MicWorker;
     std::unique_ptr<MicWorker> micWorker;
     std::atomic<int> micStateAtomic { 0 };         // HwState (scritto da MicWorker)
     juce::CriticalSection micInfoLock;
@@ -272,6 +147,7 @@ private:
     // Motore Audio Modulare DSP (Thread Audio Master)
     mimo::audio::AudioEngine audioEngine;
     std::atomic<float> triggerPulseAlpha { 0.0f };
+    std::atomic<int> lastTriggerSourceCode { 0 }; // 0=none, 1=hw-drum, 2=hw-mic, 3=hw-eye, 4=other
 
     // Sintetizzatore percussivo / sonoro interno (suona sui colpi del microfono o test)
     std::atomic<bool> synthTriggerPending { false };
@@ -298,14 +174,13 @@ private:
     juce::String getMicDeviceLabel() const;
 
     // --- Webcam (aperta/chiusa su un thread dedicato: l'interfaccia non si blocca mai) ---
-    class CameraWorker;
     std::unique_ptr<CameraWorker> cameraWorker;
     std::atomic<int> cameraState { 0 };            // HwState (scritto dal worker)
     juce::CriticalSection cameraInfoLock;
     juce::String cameraStatusText;
     juce::String cameraDeviceName;
     juce::StringArray cameraDeviceList;
-    std::atomic<int> cameraDeviceIndex { -1 };     // -1 = selezione automatica webcam fisica (es. HP Wide Vision)
+    std::atomic<int> cameraDeviceIndex { -1 };     // -1 = selezione automatica webcam fisica
     std::atomic<int> cameraFrameCounter { 0 };
     bool isCameraRecording = false;                // desiderato (modulo nel canvas)
     juce::CriticalSection cameraLock;
@@ -342,32 +217,26 @@ private:
     // --- MiMO Eye AI Server & Drawer / Popup Modal + Tendine Canvas ---
     std::unique_ptr<mimo::MiMOEyeServer> eyeServer;
     bool eyeDrawerOpen = false;
-    int eyeDrawerTab = 0; // 0 = Smartphone MediaPipe AI (60 FPS), 1 = Webcam PC Fallback
+    int eyeDrawerTab = 0; // 0 = Webcam PC & Sorgenti, 1 = Connetti Smartphone (QR)
     bool camDropdownOpen = false;
     bool micDropdownOpen = false;
     bool useSmartphoneEye = false;
-    bool eyeShowVideo = true; // true = Mostra Video + Scheletro, false = Solo Scheletro Vettoriale (Ultra-Leggero)
+    bool eyeShowVideo = true;
     mimo::HandTrackingState latestEyeState;
     mimo::HandTrackingState smoothedHandState;
     bool hasSmoothedHandState = false;
     mimo::HandTrackingState analyzeHandFrame(const juce::Image& frame);
 
     // Impostazioni Dettaglio Analisi Mano su PC (Mano, Numero Falangi, Gesture)
-    int eyeHandFilter = 0;           // 0 = Entrambe, 1 = Mano Destra, 2 = Mano Sinistra
-    int eyePhalanxDetail = 2;        // 0 = Palmo (1 pt), 1 = 5 Punte Dita (6 pt), 2 = 21 Falangi Complete
-    bool eyeGesturePos3D = true;     // Assi X / Y / Profondita Z
-    bool eyeGestureFistTilt = true;  // Chiusura Pugno + Rotazione Mano
-    bool eyeGestureFingerFlex = false; // Flessione 4 Falangi Singole (Indice, Medio, Anulare, Mignolo)
-    bool eyeGesturePinchTrig = true; // Trigger Percussivi Pinch (Pollice + 4 Dita)
+    int eyeHandFilter = 0;             // 0 = Entrambe, 1 = Mano Destra, 2 = Mano Sinistra
+    int eyePhalanxDetail = 2;          // 0 = Palmo (1 pt), 1 = 5 Punte Dita (6 pt), 2 = 21 Falangi Complete
+    bool eyeGesturePos3D = true;       // Assi X / Y / Profondita Z
+    bool eyeGestureFistTilt = true;    // Chiusura Pugno + Rotazione Mano
+    bool eyeGestureFingerFlex = false; // Flessione 4 Falangi Singole
+    bool eyeGesturePinchTrig = true;   // Trigger Percussivi Pinch
 
     void syncEyeNodeOutputsWithDetailSettings();
 
-    struct VideoSourceItem
-    {
-        juce::String label;
-        bool isSmartphone = false;
-        int pcDeviceIdx = -1;
-    };
     std::vector<VideoSourceItem> getVideoSourceItems() const;
     void selectVideoSource(bool useSmartphone, int pcDeviceIdx = -1, const juce::String& pcDeviceName = {});
 
@@ -379,19 +248,19 @@ private:
     void drawHandSkeleton(juce::Graphics& g, juce::Rectangle<float> bounds, const mimo::HandTrackingState& state, bool overVideo = false);
     static void drawQrCode(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> bounds);
 
-    juce::Rectangle<float> getEyeModalBounds() const;
-    juce::Rectangle<float> getEyeModalCloseBounds() const;
-    juce::Rectangle<float> getEyeModalTabBounds(int tabIdx) const;
-    juce::Rectangle<float> getEyeModalUrlButtonBounds() const;
-    juce::Rectangle<float> getEyeModalActivatePhoneButtonBounds() const;
-    juce::Rectangle<float> getEyeModalPinchTestBounds(int pinchIdx) const;
-    juce::Rectangle<float> getEyeModalHandFilterBounds(int filterIdx) const;
-    juce::Rectangle<float> getEyeModalPhalanxBounds(int detailIdx) const;
-    juce::Rectangle<float> getEyeModalGestureBounds(int gestureIdx) const;
-    juce::Rectangle<float> getEyeModalCameraOptionBounds(int optIdx) const;
-    juce::Rectangle<float> getEyeModalViewToggleBounds() const;
-    static juce::Rectangle<float> getEyeCardConfigButtonBounds(const juce::Rectangle<float>& nodeBox);
-    static juce::Rectangle<float> getEyeCardViewToggleButtonBounds(const juce::Rectangle<float>& nodeBox);
+    juce::Rectangle<float> getEyeModalBounds() const { return MiMOEyeDrawer::getEyeModalBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getEyeModalCloseBounds() const { return MiMOEyeDrawer::getEyeModalCloseBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getEyeModalTabBounds(int tabIdx) const { return MiMOEyeDrawer::getEyeModalTabBounds(getWidth(), getHeight(), tabIdx); }
+    juce::Rectangle<float> getEyeModalUrlButtonBounds() const { return MiMOEyeDrawer::getEyeModalUrlButtonBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getEyeModalActivatePhoneButtonBounds() const { return MiMOEyeDrawer::getEyeModalActivatePhoneButtonBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getEyeModalHandFilterBounds(int filterIdx) const { return MiMOEyeDrawer::getEyeModalHandFilterBounds(getWidth(), getHeight(), filterIdx); }
+    juce::Rectangle<float> getEyeModalPhalanxBounds(int detailIdx) const { return MiMOEyeDrawer::getEyeModalPhalanxBounds(getWidth(), getHeight(), detailIdx); }
+    juce::Rectangle<float> getEyeModalGestureBounds(int gestureIdx) const { return MiMOEyeDrawer::getEyeModalGestureBounds(getWidth(), getHeight(), gestureIdx); }
+    juce::Rectangle<float> getEyeModalPinchTestBounds(int pinchIdx) const { return MiMOEyeDrawer::getEyeModalPinchTestBounds(getWidth(), getHeight(), pinchIdx); }
+    juce::Rectangle<float> getEyeModalCameraOptionBounds(int optIdx) const { return MiMOEyeDrawer::getEyeModalCameraOptionBounds(getWidth(), getHeight(), optIdx); }
+    juce::Rectangle<float> getEyeModalViewToggleBounds() const { return MiMOEyeDrawer::getEyeModalViewToggleBounds(getWidth(), getHeight()); }
+    static juce::Rectangle<float> getEyeCardConfigButtonBounds(const juce::Rectangle<float>& nodeBox) { return MiMOEyeDrawer::getEyeCardConfigButtonBounds(nodeBox); }
+    static juce::Rectangle<float> getEyeCardViewToggleButtonBounds(const juce::Rectangle<float>& nodeBox) { return MiMOEyeDrawer::getEyeCardViewToggleButtonBounds(nodeBox); }
 
     // Editor Nodi Nested a tutto schermo (Doppio Clic) e Selezione Nodi
     juce::String expandedNodeId;
@@ -401,7 +270,7 @@ private:
     bool hasPendingPolaroid = false;
     PolaroidItem pendingPolaroid;
     bool polaroidHasTyped = false;
-    int polaroidCountdownTicks = 18; // ~3.0 secondi a 6 Hz
+    int polaroidCountdownTicks = 18;
     std::vector<PolaroidItem> photoAlbum;
     PolaroidItem sceneSlots[5];
     int activeSceneSlot = 0;
@@ -409,17 +278,15 @@ private:
 
     // Stato Workspace LIVE (Performance & Feedback I2C)
     int selectedAlbumIndex = -1;
-    juce::String filterEngine = "ALL"; // "ALL", "sfizz", "faust"
+    juce::String filterEngine = "ALL";
     int hoveredSlotIndex = -1;
     int holdSlotIndex = -1;
-    float holdProgress = 0.0f; // 0.0f .. 1.0f (assegnazione rapida 1s)
+    float holdProgress = 0.0f;
     int snappedSlotIndex = -1;
-    float snapAnimScale = 1.0f; // Animazione elastica spring al drop
-    float looperSweepProgress = 0.0f; // Sweep rotativo 0..1 a 60 FPS
+    float snapAnimScale = 1.0f;
+    float looperSweepProgress = 0.0f;
     double looperStartTime = 0.0;
     double looperDurationSec = 4.0;
-
-    enum class LooperState { Idle, Recording, Playing, Overdubbing };
     LooperState looperState = LooperState::Idle;
 
     void initDefaultLivePresets();
@@ -431,24 +298,7 @@ private:
     // =========================================================================
     // Stato di Interazione Mouse / Drag & Drop
     // =========================================================================
-    enum class DragMode
-    {
-        None,
-        PanCanvas,
-        MoveNode,
-        MoveInnerBlock,
-        TurnKnob,
-        TurnInnerKnob,
-        DrawCable,
-        DragSidebarItem,
-        DragPolaroid,
-        DragMicSensitivity,
-        DragCanvasMicSensitivity,
-        DragCameraSensitivity,
-        DragSettingsVolume
-    };
     DragMode dragMode = DragMode::None;
-
     juce::Point<float> dragStartMouse;
     juce::Point<float> dragStartOffset;
     juce::String draggedNodeId;
@@ -468,16 +318,15 @@ private:
     juce::Point<float> cableCurrentWorld;
     std::vector<juce::Point<float>> cableFreehandWorld;
 
-    // Selezione Cavi e Pin per cancellazione rapida ([CANC] / [Backspace])
+    // Selezione Cavi e Pin
     juce::String selectedCableId;
     juce::String selectedPinNodeId;
     juce::String selectedPinId;
 
-    // Distacco e re-routing cavi ("prendendo quel nodo e lasciandolo nel nulla si stacchi")
+    // Distacco e re-routing cavi
     bool isUnhookingExistingCable = false;
     CanvasCable unhookedOriginalCable;
     juce::Point<float> unhookDragStartWorld;
-
 
     // Hover sui Pin e sui Cavi
     juce::String hoveredPinNodeId;
@@ -497,43 +346,58 @@ private:
     // =========================================================================
     void initCatalogs();
     void initDefaultStudioGraph();
-    CanvasNode createFxNodeFromCatalog(const CatalogItem& fx, juce::Point<float> worldPos, int uniqueSeed, bool isVertical = false);
-    CanvasNode createInstrumentNodeFromCatalog(const CatalogItem& item, juce::Point<float> worldPos, int uniqueSeed = 1);
+    CanvasNode createFxNodeFromCatalog(const CatalogItem& fx, juce::Point<float> worldPos, int uniqueSeed, bool isVertical = false)
+    {
+        return CanvasGraphHelper::createFxNodeFromCatalog(fx, worldPos, uniqueSeed, isVertical);
+    }
+    CanvasNode createInstrumentNodeFromCatalog(const CatalogItem& item, juce::Point<float> worldPos, int uniqueSeed = 1)
+    {
+        return CanvasGraphHelper::createInstrumentNodeFromCatalog(item, worldPos, uniqueSeed);
+    }
     void syncAudioRoutes();
 
-    juce::Point<float> screenToWorld(juce::Point<float> screenPt) const;
-    juce::Point<float> worldToScreen(juce::Point<float> worldPt) const;
-    juce::Rectangle<float> worldToScreenRect(juce::Rectangle<float> worldRect) const;
-
-    // Calcolo posizioni Pin ed Elementi nel Canvas
-    struct PinHit
+    juce::Point<float> screenToWorld(juce::Point<float> screenPt) const noexcept
     {
-        juce::String nodeId;
-        juce::String pinId;
-        bool isOutput = false;
-        bool isMod = false;
-        juce::Colour colour = MiMOLookAndFeel::fountainInk;
-        juce::Point<float> worldPos;
-        juce::Point<float> normal { 0.0f, 0.0f }; // Direzione di uscita o ingresso presa
-        MiMOLookAndFeel::PinShapeType shapeType = MiMOLookAndFeel::PinShapeType::AudioCircle;
-    };
-    float getNodeCalculatedHeight(const CanvasNode& node) const;
-    std::vector<PinHit> collectAllPins() const;
-    juce::Point<float> getPinWorldPos(const juce::String& nodeId, const juce::String& pinId) const;
-    juce::Point<float> getPinNormal(const juce::String& nodeId, const juce::String& pinId) const;
-
-    struct KnobHit
+        return CanvasGeometry::screenToWorld(screenPt, canvasOffset, canvasZoom);
+    }
+    juce::Point<float> worldToScreen(juce::Point<float> worldPt) const noexcept
     {
-        juce::String nodeId;
-        juce::String blockId;
-        juce::String paramKey;
-        juce::Rectangle<float> worldBounds;
-    };
-    std::vector<KnobHit> collectCanvasKnobs() const;
+        return CanvasGeometry::worldToScreen(worldPt, canvasOffset, canvasZoom);
+    }
+    juce::Rectangle<float> worldToScreenRect(juce::Rectangle<float> worldRect) const noexcept
+    {
+        return CanvasGeometry::worldToScreenRect(worldRect, canvasOffset, canvasZoom);
+    }
 
-    // Hit-test per Drop Effetti ("Snap-on-Wire") e Moduli
-    juce::String findAudioCableNear(juce::Point<float> worldPt, float maxDist = 20.0f) const;
-    juce::String findHwModuleAt(juce::Point<float> worldPt) const;
+    float getNodeCalculatedHeight(const CanvasNode& node) const
+    {
+        return CanvasGeometry::getNodeCalculatedHeight(node);
+    }
+    std::vector<PinHit> collectAllPins() const
+    {
+        return CanvasGeometry::collectAllPins(nodes);
+    }
+    juce::Point<float> getPinWorldPos(const juce::String& nodeId, const juce::String& pinId) const
+    {
+        return CanvasGeometry::getPinWorldPos(nodes, nodeId, pinId);
+    }
+    juce::Point<float> getPinNormal(const juce::String& nodeId, const juce::String& pinId) const
+    {
+        return CanvasGeometry::getPinNormal(nodes, nodeId, pinId);
+    }
+    std::vector<KnobHit> collectCanvasKnobs() const
+    {
+        return CanvasGeometry::collectCanvasKnobs(nodes);
+    }
+
+    juce::String findAudioCableNear(juce::Point<float> worldPt, float maxDist = 20.0f) const
+    {
+        return CanvasGeometry::findAudioCableNear(cables, nodes, worldPt, maxDist);
+    }
+    juce::String findHwModuleAt(juce::Point<float> worldPt) const
+    {
+        return CanvasGeometry::findHwModuleAt(nodes, worldPt);
+    }
     void insertEffectOnCable(const CatalogItem& fx, const juce::String& cableId, juce::Point<float> worldPos);
     void deleteSelectedEffect();
     void deleteNode(const juce::String& nodeId);
@@ -584,16 +448,13 @@ private:
     juce::Rectangle<float> getDockTabBounds(int tabIdx) const;
     juce::Rectangle<float> getPolaroidCardBounds() const;
 
-    // Gestione Modalità Notte (Dark Mode di default & sincronizzata con il sistema)
+    // Gestione Modalità Notte
     bool isDarkMode = true;
     static bool detectSystemDarkMode();
     void setDarkMode(bool dark);
     void toggleDarkMode();
 
-    // Contatore progressivo per istanze di nodi ed effetti
     int fxCounter = 2;
-
-    // Immagine Hardware MiMO Centrale
     juce::Image mimoImage;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)

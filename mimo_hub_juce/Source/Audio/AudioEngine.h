@@ -128,8 +128,8 @@ public:
             for (const auto& r : activeRoutes)
             {
                 const bool matchSource = (r.sourceNodeId == sourceId ||
-                                         (sourceId.startsWith("hw-") && r.sourceNodeId.startsWith("hw-drum")) ||
-                                         (sourceId.startsWith("hw-") && r.sourceNodeId.startsWith("hw-mic")));
+                                         (sourceId == "hw-eye" && r.sourceNodeId == "hw-webcam") ||
+                                         (sourceId == "hw-webcam" && r.sourceNodeId == "hw-eye"));
 
                 bool pinMatches = false;
                 if (r.sourcePinId == "trigger:out")
@@ -174,8 +174,8 @@ public:
                 for (const auto& r : activeRoutes)
                 {
                     const bool matchSource = (r.sourceNodeId == sourceId ||
-                                             (sourceId.startsWith("hw-") && r.sourceNodeId.startsWith("hw-drum")) ||
-                                             (sourceId.startsWith("hw-") && r.sourceNodeId.startsWith("hw-mic")));
+                                             (sourceId == "hw-eye" && r.sourceNodeId == "hw-webcam") ||
+                                             (sourceId == "hw-webcam" && r.sourceNodeId == "hw-eye"));
 
                     if (matchSource)
                     {

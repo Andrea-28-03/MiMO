@@ -40,8 +40,14 @@ target_sources(MiMOHub PRIVATE
     Source/Audio/Modules/Effects/LushReverb.h
     Source/GUI/MiMOLookAndFeel.h
     Source/GUI/MiMOLookAndFeel.cpp
+    Source/GUI/CanvasGraph.h
+    Source/GUI/CanvasGraph.cpp
+    Source/GUI/MiMOEyeDrawer.h
+    Source/GUI/MiMOEyeDrawer.cpp
     Source/GUI/MainComponent.h
     Source/GUI/MainComponent.cpp
+    Source/Devices/HardwareWorkers.h
+    Source/Devices/HardwareWorkers.cpp
     Source/Utils/qrcodegen.hpp
     Source/Utils/qrcodegen.cpp
     Source/Networking/MiMOEyeServer.h
