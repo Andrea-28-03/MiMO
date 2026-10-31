@@ -22,16 +22,53 @@ void CanvasInteraction::handleMouseDrag(MainComponent& comp, const juce::MouseEv
     else if (comp.dragMode == MainComponent::DragMode::MoveNode)
     {
         const auto worldPt = comp.screenToWorld(pt);
+        const auto delta = worldPt - comp.dragStartMouse;
+
         for (auto& n : comp.nodes)
         {
-            if (n.id == comp.draggedNodeId)
+            if (comp.isNodeSelected(n.id))
             {
-                n.pos = comp.dragStartOffset + (worldPt - comp.dragStartMouse);
+                auto itOffset = comp.dragStartNodeOffsets.find(n.id);
+                if (itOffset != comp.dragStartNodeOffsets.end())
+                    n.pos = itOffset->second + delta;
+                else if (n.id == comp.draggedNodeId)
+                    n.pos = comp.dragStartOffset + delta;
+
                 n.targetPos = n.pos;
                 n.isAnimatingPos = false;
-                break;
             }
         }
+        comp.repaint();
+    }
+    else if (comp.dragMode == MainComponent::DragMode::LassoSelection)
+    {
+        comp.lassoCurrentWorld = comp.screenToWorld(pt);
+        const auto lassoRect = comp.getLassoWorldRect();
+
+        for (const auto& n : comp.nodes)
+        {
+            if (n.type == NodeType::RockPiCentral)
+                continue;
+
+            const auto nodeBox = juce::Rectangle<float>(n.pos.x, n.pos.y, n.size.x, n.size.y);
+            if (lassoRect.intersects(nodeBox))
+            {
+                if (!comp.isNodeSelected(n.id))
+                    comp.selectedNodeIds.push_back(n.id);
+            }
+            else if (!e.mods.isShiftDown())
+            {
+                auto it = std::find(comp.selectedNodeIds.begin(), comp.selectedNodeIds.end(), n.id);
+                if (it != comp.selectedNodeIds.end())
+                    comp.selectedNodeIds.erase(it);
+            }
+        }
+
+        if (!comp.selectedNodeIds.empty())
+            comp.selectedNodeId = comp.selectedNodeIds.back();
+        else
+            comp.selectedNodeId.clear();
+
         comp.repaint();
     }
     else if (comp.dragMode == MainComponent::DragMode::MoveInnerBlock)
@@ -225,10 +262,16 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
             });
 
             comp.syncAudioRoutes();
+            comp.pushUndoSnapshot();
         }
 
         comp.isUnhookingExistingCable = false;
         comp.cableFreehandWorld.clear();
+        comp.dragMode = MainComponent::DragMode::None;
+        comp.repaint();
+    }
+    else if (comp.dragMode == MainComponent::DragMode::LassoSelection)
+    {
         comp.dragMode = MainComponent::DragMode::None;
         comp.repaint();
     }
@@ -237,6 +280,7 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
         const float sidebarThreshold = static_cast<float>(comp.getWidth()) - (comp.sidebarOpen ? 280.0f : 50.0f);
         if (pt.x >= sidebarThreshold)
         {
+            comp.pushUndoSnapshot();
             comp.deleteNode(comp.draggedNodeId);
             comp.dragMode = MainComponent::DragMode::None;
             comp.draggedNodeId.clear();
@@ -303,6 +347,7 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
                 break;
             }
         }
+        comp.pushUndoSnapshot();
         comp.dragMode = MainComponent::DragMode::None;
         comp.draggedNodeId.clear();
         comp.repaint();
@@ -417,6 +462,7 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
                     comp.syncAudioRoutes();
                 }
             }
+            comp.pushUndoSnapshot();
         }
         comp.hoveredHwNodeId.clear();
         comp.hoveredAudioCableId.clear();

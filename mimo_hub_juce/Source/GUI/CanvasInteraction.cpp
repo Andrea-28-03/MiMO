@@ -12,7 +12,7 @@ void CanvasInteraction::handleMouseMove(MainComponent& comp, const juce::MouseEv
 {
     const auto worldPt = comp.screenToWorld(e.position);
 
-    // Hover sui pin di connessione (per snap magnetico e glow)
+    // 1. Hover sui pin di connessione (per snap magnetico, glow e cursore)
     comp.hasHoveredPin = false;
     const auto allPins = comp.collectAllPins();
     for (const auto& pin : allPins)
@@ -24,6 +24,7 @@ void CanvasInteraction::handleMouseMove(MainComponent& comp, const juce::MouseEv
             comp.hoveredPinId = pin.pinId;
             comp.hoveredPinPos = pin.worldPos;
             comp.hasHoveredPin = true;
+            comp.setMouseCursor(juce::MouseCursor::PointingHandCursor);
             comp.repaint();
             return;
         }
@@ -34,6 +35,38 @@ void CanvasInteraction::handleMouseMove(MainComponent& comp, const juce::MouseEv
         comp.hasHoveredPin = false;
         comp.repaint();
     }
+
+    // 2. Hover sulle manopole pastello
+    for (const auto& kh : comp.collectCanvasKnobs())
+    {
+        if (kh.worldBounds.contains(worldPt))
+        {
+            comp.setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
+            return;
+        }
+    }
+
+    // 3. Hover su un cavo audio o di modulazione
+    const auto nearCableId = comp.findAudioCableNear(worldPt, 18.0f);
+    if (nearCableId.isNotEmpty())
+    {
+        comp.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        return;
+    }
+
+    // 4. Hover su una card di nodo
+    for (const auto& n : comp.nodes)
+    {
+        const auto box = juce::Rectangle<float>(n.pos.x, n.pos.y, n.size.x, n.size.y);
+        if (box.contains(worldPt))
+        {
+            comp.setMouseCursor(juce::MouseCursor::NormalCursor);
+            return;
+        }
+    }
+
+    // 5. Spazio vuoto del Canvas: cursore a manina di navigazione (Task 1.6)
+    comp.setMouseCursor(juce::MouseCursor::DraggingHandCursor);
 }
 
 void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEvent& e)
@@ -565,7 +598,17 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
             }
 
             // Selezione e Spostamento Nodo
-            comp.selectedNodeId = it->id;
+            if (e.mods.isShiftDown())
+            {
+                comp.toggleNodeSelection(it->id);
+            }
+            else
+            {
+                if (!comp.isNodeSelected(it->id))
+                    comp.selectSingleNode(it->id);
+            }
+
+            comp.bringNodeToFront(it->id);
             comp.selectedCableId.clear();
             comp.syncAudioRoutes();
 
@@ -575,21 +618,43 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
                 comp.draggedNodeId = it->id;
                 comp.dragStartMouse = worldPt;
                 comp.dragStartOffset = it->pos;
+
+                comp.dragStartNodeOffsets.clear();
+                for (const auto& n : comp.nodes)
+                    if (comp.isNodeSelected(n.id))
+                        comp.dragStartNodeOffsets[n.id] = n.pos;
             }
             comp.repaint();
             return;
         }
     }
 
-    // 7. Click su spazio vuoto: Pan libero (o selezione multipla lasso)
-    comp.selectedNodeId.clear();
-    comp.selectedCableId.clear();
-    comp.syncAudioRoutes();
+    // 7. Click su spazio vuoto: Pan libero 360° (con Tasto Destro / Centrale / Spazio) o Selezione Lasso Pastello
+    const bool isPanAction = e.mods.isRightButtonDown() || e.mods.isMiddleButtonDown() || e.mods.isAltDown() || juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);
 
-    comp.dragMode = MainComponent::DragMode::PanCanvas;
-    comp.dragStartMouse = pt;
-    comp.dragStartOffset = comp.canvasOffset;
-    comp.repaint();
+    if (isPanAction)
+    {
+        comp.dragMode = MainComponent::DragMode::PanCanvas;
+        comp.dragStartMouse = pt;
+        comp.dragStartOffset = comp.canvasOffset;
+        comp.panVelocity = { 0.0f, 0.0f };
+        comp.setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        comp.repaint();
+    }
+    else
+    {
+        if (!e.mods.isShiftDown())
+            comp.clearNodeSelection();
+
+        comp.selectedCableId.clear();
+        comp.syncAudioRoutes();
+
+        comp.dragMode = MainComponent::DragMode::LassoSelection;
+        comp.lassoStartWorld = worldPt;
+        comp.lassoCurrentWorld = worldPt;
+        comp.setMouseCursor(juce::MouseCursor::CrosshairCursor);
+        comp.repaint();
+    }
 }
 
 void CanvasInteraction::handleMouseDoubleClick(MainComponent& comp, const juce::MouseEvent& e)
@@ -613,10 +678,24 @@ void CanvasInteraction::handleMouseDoubleClick(MainComponent& comp, const juce::
 
 void CanvasInteraction::handleMouseWheelMove(MainComponent& comp, const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
+    // 1. Panning fluido continuo 360° con Touchpad a due dita o Shift+rotella (Task 1.4)
+    const bool isTouchpadPan = (wheel.isSmooth || std::abs(wheel.deltaX) > 0.001f || e.mods.isAltDown() || e.mods.isShiftDown());
+
+    if (isTouchpadPan && !e.mods.isCtrlDown() && !e.mods.isCommandDown())
+    {
+        const float panFactor = wheel.isSmooth ? 160.0f : 40.0f;
+        comp.canvasOffset.x += wheel.deltaX * panFactor;
+        comp.canvasOffset.y += wheel.deltaY * panFactor;
+        comp.panVelocity = { wheel.deltaX * panFactor * 0.4f, wheel.deltaY * panFactor * 0.4f };
+        comp.timeSinceLastWheel = 0.0f;
+        comp.repaint();
+        return;
+    }
+
+    // 2. Zoom diretto centrato sul cursore con rotella del mouse fisico (Task 1.5)
     const auto pt = e.position;
     const auto worldBefore = comp.screenToWorld(pt);
 
-    // Zoom fluido continuo con rotella del mouse
     const float zoomFactor = (wheel.deltaY > 0.0f) ? 1.08f : (1.0f / 1.08f);
     const float newZoom = juce::jlimit(0.20f, 3.50f, comp.canvasZoom * zoomFactor);
 
@@ -676,6 +755,48 @@ bool CanvasInteraction::handleKeyPressed(MainComponent& comp, const juce::KeyPre
         }
     }
 
+    // Scorciatoie da Tastiera con Modificatori (CTRL / CMD)
+    if (key.getModifiers().isCtrlDown() || key.getModifiers().isCommandDown())
+    {
+        const int code = key.getKeyCode();
+        if (code == 'C' || code == 'c')
+        {
+            comp.copySelectedNodes();
+            return true;
+        }
+        if (code == 'V' || code == 'v')
+        {
+            comp.pasteNodes();
+            return true;
+        }
+        if (code == 'Z' || code == 'z')
+        {
+            if (key.getModifiers().isShiftDown())
+                comp.redo();
+            else
+                comp.undo();
+            return true;
+        }
+        if (code == 'Y' || code == 'y')
+        {
+            comp.redo();
+            return true;
+        }
+        if (code == 'A' || code == 'a')
+        {
+            comp.selectedNodeIds.clear();
+            for (const auto& n : comp.nodes)
+                if (n.type != NodeType::RockPiCentral)
+                    comp.selectedNodeIds.push_back(n.id);
+
+            if (!comp.selectedNodeIds.empty())
+                comp.selectedNodeId = comp.selectedNodeIds.back();
+
+            comp.repaint();
+            return true;
+        }
+    }
+
     // Scorciatoia Modalita Notte ('N' o 'n')
     if (key.getTextCharacter() == 'n' || key.getTextCharacter() == 'N')
     {
@@ -723,6 +844,7 @@ bool CanvasInteraction::handleKeyPressed(MainComponent& comp, const juce::KeyPre
     {
         if (comp.selectedCableId.isNotEmpty())
         {
+            comp.pushUndoSnapshot();
             comp.cables.erase(std::remove_if(comp.cables.begin(), comp.cables.end(),
                 [&](const CanvasCable& c) { return c.id == comp.selectedCableId; }),
                 comp.cables.end());
@@ -733,6 +855,7 @@ bool CanvasInteraction::handleKeyPressed(MainComponent& comp, const juce::KeyPre
         }
         if (comp.selectedPinNodeId.isNotEmpty())
         {
+            comp.pushUndoSnapshot();
             comp.cables.erase(std::remove_if(comp.cables.begin(), comp.cables.end(),
                 [&](const CanvasCable& c) {
                     return (c.sourceNodeId == comp.selectedPinNodeId && c.sourcePinId == comp.selectedPinId) ||
@@ -745,8 +868,19 @@ bool CanvasInteraction::handleKeyPressed(MainComponent& comp, const juce::KeyPre
             comp.repaint();
             return true;
         }
+        if (!comp.selectedNodeIds.empty())
+        {
+            comp.pushUndoSnapshot();
+            for (const auto& nid : comp.selectedNodeIds)
+                comp.deleteNode(nid);
+            comp.clearNodeSelection();
+            comp.syncAudioRoutes();
+            comp.repaint();
+            return true;
+        }
         if (comp.selectedNodeId.isNotEmpty())
         {
+            comp.pushUndoSnapshot();
             comp.deleteNode(comp.selectedNodeId);
             return true;
         }

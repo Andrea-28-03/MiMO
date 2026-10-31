@@ -573,18 +573,6 @@ void MainComponent::paint(juce::Graphics& g)
 
 void MainComponent::resized() {}
 
-void MainComponent::mouseMove(const juce::MouseEvent& e)
-{
-    currentMousePos = e.position;
-    if (activeTab == ActiveTab::Studio)
-    {
-        if (sidebarOpen && e.position.x >= getWidth() - 300)
-            SidebarComponent::handleMouseDrag(*this, e.position);
-        else
-            CanvasInteraction::handleMouseMove(*this, e);
-    }
-}
-
 void MainComponent::mouseDown(const juce::MouseEvent& e)
 {
     currentMousePos = e.position;
@@ -647,6 +635,15 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
     }
 }
 
+void MainComponent::mouseMove(const juce::MouseEvent& e)
+{
+    currentMousePos = e.position;
+    if (activeTab == ActiveTab::Studio && (!sidebarOpen || e.position.x < static_cast<float>(getWidth() - 308)))
+        CanvasInteraction::handleMouseMove(*this, e);
+    else
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+}
+
 void MainComponent::mouseDrag(const juce::MouseEvent& e)
 {
     currentMousePos = e.position;
@@ -683,6 +680,52 @@ void MainComponent::mouseMagnify(const juce::MouseEvent& e, float scaleFactor)
 bool MainComponent::keyPressed(const juce::KeyPress& key)
 {
     return CanvasInteraction::handleKeyPressed(*this, key);
+}
+
+void MainComponent::undo()
+{
+    if (undoManager.undo(nodes, cables))
+    {
+        selectedNodeIds.clear();
+        selectedNodeId.clear();
+        syncAudioRoutes();
+        updateHardwareDeviceStates();
+        repaint();
+    }
+}
+
+void MainComponent::redo()
+{
+    if (undoManager.redo(nodes, cables))
+    {
+        selectedNodeIds.clear();
+        selectedNodeId.clear();
+        syncAudioRoutes();
+        updateHardwareDeviceStates();
+        repaint();
+    }
+}
+
+void MainComponent::copySelectedNodes()
+{
+    undoManager.copy(nodes, cables, selectedNodeIds);
+}
+
+void MainComponent::pasteNodes()
+{
+    if (undoManager.hasClipboard())
+    {
+        pushUndoSnapshot();
+        std::vector<juce::String> newIds;
+        if (undoManager.paste(nodes, cables, newIds, fxCounter))
+        {
+            selectedNodeIds = newIds;
+            selectedNodeId = newIds.empty() ? juce::String() : newIds.back();
+            syncAudioRoutes();
+            updateHardwareDeviceStates();
+            repaint();
+        }
+    }
 }
 
 } // namespace mimo

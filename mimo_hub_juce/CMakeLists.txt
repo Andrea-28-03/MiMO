@@ -69,6 +69,8 @@ target_sources(MiMOHub PRIVATE
     Source/GUI/LiveAlbumView.cpp
     Source/GUI/PresetCatalog.h
     Source/GUI/PresetCatalog.cpp
+    Source/GUI/CanvasUndoManager.h
+    Source/GUI/CanvasUndoManager.cpp
     Source/GUI/MiMOEyeDrawer.h
     Source/GUI/MiMOEyeDrawer.cpp
     Source/GUI/MainComponent.h

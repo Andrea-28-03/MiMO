@@ -11,7 +11,7 @@ void CanvasRenderer::paintCanvasNode(juce::Graphics& g, MainComponent& comp, con
 {
     const juce::Rectangle<float> box(node.pos.x, node.pos.y, node.size.x, node.size.y);
     const int seed = node.id.hashCode();
-    const bool isNodeSelected = (node.id == comp.selectedNodeId);
+    const bool isNodeSelected = comp.isNodeSelected(node.id);
     const juce::Colour glow = isNodeSelected ? MiMOLookAndFeel::crayonCherry
                                              : ((node.id == comp.hoveredHwNodeId) ? MiMOLookAndFeel::crayonOchre : juce::Colours::transparentBlack);
 

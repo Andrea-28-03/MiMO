@@ -49,7 +49,8 @@ enum class DragMode
     DragMicSensitivity,
     DragCanvasMicSensitivity,
     DragCameraSensitivity,
-    DragSettingsVolume
+    DragSettingsVolume,
+    LassoSelection
 };
 
 // =============================================================================

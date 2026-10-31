@@ -16,6 +16,7 @@
 #include "BottomDock.h"
 #include "LiveAlbumView.h"
 #include "CanvasInteraction.h"
+#include "CanvasUndoManager.h"
 #include "../Devices/HardwareWorkers.h"
 #include "../Devices/HardwareManager.h"
 #include "../Networking/MiMOEyeServer.h"
@@ -270,9 +271,73 @@ private:
     juce::StringArray getCameraDropdownOptions() { return HardwareManager::getCameraDropdownOptions(*this); }
     juce::StringArray getMicDropdownOptions() { return HardwareManager::getMicDropdownOptions(*this); }
 
-    // Editor Nodi Nested a tutto schermo e Selezione Nodi
+    // Editor Nodi Nested a tutto schermo e Selezione Nodi (Multipla)
     juce::String expandedNodeId;
     juce::String selectedNodeId;
+    std::vector<juce::String> selectedNodeIds;
+    std::map<juce::String, juce::Point<float>> dragStartNodeOffsets;
+    juce::Point<float> lassoStartWorld;
+    juce::Point<float> lassoCurrentWorld;
+
+    bool isNodeSelected(const juce::String& id) const
+    {
+        return std::find(selectedNodeIds.begin(), selectedNodeIds.end(), id) != selectedNodeIds.end() || (selectedNodeId == id);
+    }
+    void selectSingleNode(const juce::String& id)
+    {
+        selectedNodeIds.clear();
+        if (id.isNotEmpty())
+            selectedNodeIds.push_back(id);
+        selectedNodeId = id;
+    }
+    void toggleNodeSelection(const juce::String& id)
+    {
+        auto it = std::find(selectedNodeIds.begin(), selectedNodeIds.end(), id);
+        if (it != selectedNodeIds.end())
+        {
+            selectedNodeIds.erase(it);
+            selectedNodeId = selectedNodeIds.empty() ? juce::String() : selectedNodeIds.back();
+        }
+        else
+        {
+            selectedNodeIds.push_back(id);
+            selectedNodeId = id;
+        }
+    }
+    void clearNodeSelection()
+    {
+        selectedNodeIds.clear();
+        selectedNodeId.clear();
+    }
+    void bringNodeToFront(const juce::String& id)
+    {
+        auto it = std::find_if(nodes.begin(), nodes.end(), [&](const CanvasNode& n) { return n.id == id; });
+        if (it != nodes.end() && it != nodes.end() - 1)
+        {
+            CanvasNode nodeCopy = *it;
+            nodes.erase(it);
+            nodes.push_back(nodeCopy);
+        }
+    }
+    juce::Rectangle<float> getLassoWorldRect() const
+    {
+        const float x1 = std::min(lassoStartWorld.x, lassoCurrentWorld.x);
+        const float y1 = std::min(lassoStartWorld.y, lassoCurrentWorld.y);
+        const float x2 = std::max(lassoStartWorld.x, lassoCurrentWorld.x);
+        const float y2 = std::max(lassoStartWorld.y, lassoCurrentWorld.y);
+        return { x1, y1, std::max(1.0f, x2 - x1), std::max(1.0f, y2 - y1) };
+    }
+
+    // Gestione Cronologia Undo/Redo e Clipboard Copia/Incolla
+    CanvasUndoManager undoManager;
+    void pushUndoSnapshot()
+    {
+        undoManager.pushSnapshot(nodes, cables);
+    }
+    void undo();
+    void redo();
+    void copySelectedNodes();
+    void pasteNodes();
 
     // Sistema Polaroid, Album e 5 Slot Scena + 1-Button Looper
     bool hasPendingPolaroid = false;

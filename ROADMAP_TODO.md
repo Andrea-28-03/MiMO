@@ -22,23 +22,23 @@
 ## 📋 Fase 1: Workflow & Interazione Canvas Core (UX Fondamentale)
 *Obiettivo: Rendere il canvas agile, naturale e conforme agli standard professionali di disegno e montaggio.*
 
-- [ ] **1.1. Selezione Multipla (Lasso / Marquee Selection)** `[@HUB @STANDARDS]`
+- [x] **1.1. Selezione Multipla (Lasso / Marquee Selection)** `[@HUB @STANDARDS]`
   - Cliccando e trascinando con il tasto sinistro su uno spazio vuoto del canvas compare un riquadro di selezione pastello.
   - Tutti i nodi intersecati dal riquadro vengono selezionati contemporaneamente (evidenziati con glow).
   - Supporto per `Shift + Click` per aggiungere/rimuovere singoli nodi alla selezione.
-- [ ] **1.2. Copia & Incolla (CTRL+C / CTRL+V)** `[@HUB @DATA]`
+- [x] **1.2. Copia & Incolla (CTRL+C / CTRL+V)** `[@HUB @DATA]`
   - Copiando più nodi selezionati vengono duplicati anche i cavi interni tra essi.
   - Incollando (`CTRL+V`), i nuovi elementi compaiono sfalsati di 30px rispetto all'originale per non sovrapporsi.
-- [ ] **1.3. Sistema Undo / Redo (CTRL+Z / CTRL+SHIFT+Z)** `[@HUB @DATA @LOGIC]`
+- [x] **1.3. Sistema Undo / Redo (CTRL+Z / CTRL+SHIFT+Z)** `[@HUB @DATA @LOGIC]`
   - Storico cronologico atomico per annullare/ripristinare: aggiunta/cancellazione nodi, connessione/rimozione cavi, spostamenti di posizione e cambi parametri.
-- [ ] **1.4. Navigazione Panning 2D a 360° per Touchpad & Mouse** `[@HUB]`
+- [x] **1.4. Navigazione Panning 2D a 360° per Touchpad & Mouse** `[@HUB]`
   - Rimozione del blocco/snapping sui due soli assi ortogonali (destra/sinistra e alto/basso).
   - Panning fluido bidirezionale che consente il movimento diagonale continuo con qualsiasi touchpad o trascinamento.
-- [ ] **1.5. Zoom Diretto con Rotella del Mouse** `[@HUB]`
+- [x] **1.5. Zoom Diretto con Rotella del Mouse** `[@HUB]`
   - Lo zoom in/out si attiva direttamente ruotando la rotella del mouse senza dover premere alcun tasto modificatore.
-- [ ] **1.6. Cursore a Manina su Spazio Vuoto** `[@HUB]`
+- [x] **1.6. Cursore a Manina su Spazio Vuoto** `[@HUB]`
   - Quando il puntatore del mouse si trova sul canvas libero (non sopra nodi, manopole o cavi), il cursore assume l'aspetto della manina di navigazione.
-- [ ] **1.7. Occlusione Grafica Perfetta (Z-Index Opaque Cards)** `[@HUB @STANDARDS]`
+- [x] **1.7. Occlusione Grafica Perfetta (Z-Index Opaque Cards)** `[@HUB @STANDARDS]`
   - I nodi in primo piano coprono al 100% i nodi e i cavi sottostanti, eliminando trasparenze indesiderate e linee passanti.
 
 ---

@@ -200,6 +200,21 @@ void CanvasRenderer::paintPins(juce::Graphics& g, MainComponent& comp, const std
         MiMOLookAndFeel::drawPinJack(g, pin.worldPos, r, pin.shapeType, pin.colour,
                                      isHovered, isSelected, isValidTarget, isFiring);
     }
+
+    // 5. Riquadro di Selezione Multipla Lasso Pastello (Task 1.1)
+    if (comp.dragMode == MainComponent::DragMode::LassoSelection)
+    {
+        const auto lasso = comp.getLassoWorldRect();
+        g.setColour(MiMOLookAndFeel::crayonCyan.withAlpha(0.18f));
+        g.fillRect(lasso);
+
+        g.setColour(MiMOLookAndFeel::crayonCyan.withAlpha(0.85f));
+        const float dashPattern[2] = { 6.0f, 4.0f };
+        g.drawDashedLine(juce::Line<float>(lasso.getTopLeft(), lasso.getTopRight()), dashPattern, 2, 1.6f);
+        g.drawDashedLine(juce::Line<float>(lasso.getTopRight(), lasso.getBottomRight()), dashPattern, 2, 1.6f);
+        g.drawDashedLine(juce::Line<float>(lasso.getBottomRight(), lasso.getBottomLeft()), dashPattern, 2, 1.6f);
+        g.drawDashedLine(juce::Line<float>(lasso.getBottomLeft(), lasso.getTopLeft()), dashPattern, 2, 1.6f);
+    }
 }
 
 void CanvasRenderer::paintCanvasDropdowns(juce::Graphics& g, MainComponent& comp)
