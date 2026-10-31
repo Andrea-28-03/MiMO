@@ -374,10 +374,10 @@ mimo::HandTrackingState MainComponent::analyzeHandFrame(const juce::Image& frame
     }
 
     const bool isCenterTopFaceArea = (rawPalmY < 0.68f && rawPalmX > 0.22f && rawPalmX < 0.78f);
-    const bool isLargeSkinBlob = (skinRatio > 0.050f);
+    const bool isVeryLargeSkinBlob = (skinRatio > 0.080f);
 
-    // Un volto in primo piano occupa la porzione centrale/superiore o una vasta area di pelle.
-    if (isCenterTopFaceArea || isLargeSkinBlob)
+    // Solo una sagoma massiccia priva di dita puo' essere considerata un volto
+    if (isVeryLargeSkinBlob || (isCenterTopFaceArea && skinRatio > 0.050f && fingerPeaks < 1))
     {
         st.hasHand = false;
         hasSmoothedHandState = false;
@@ -1503,7 +1503,10 @@ void MainComponent::timerCallback()
                 needsRepaint = true;
         }
 
-        if ((latestEyeState.hasHand && isCameraInCanvas()) || (eyeDrawerOpen && frameCounter % 10 == 0))
+        if ((latestEyeState.hasHand && isCameraInCanvas()) || (isCameraRecording && isCameraInCanvas()) || (eyeDrawerOpen && frameCounter % 10 == 0))
+            needsRepaint = true;
+
+        if (isMicInCanvas() && isMicRecording && (realMicLevel.load() > 0.005f || realMicVelocity.load() > 0.005f))
             needsRepaint = true;
     }
 
@@ -1687,7 +1690,7 @@ void MainComponent::timerCallback()
                     const auto blockId = paramSpec.upToFirstOccurrenceOf(".", false, false);
                     const auto paramKey = paramSpec.fromFirstOccurrenceOf(".", false, false);
 
-                    for auto& dst : nodes)
+                    for (auto& dst : nodes)
                     {
                         if (dst.id != c.targetNodeId)
                             continue;
@@ -1711,7 +1714,7 @@ void MainComponent::timerCallback()
                         // Se e' un NestedEffect con innerBlocks
                         for (auto& b : dst.innerBlocks)
                         {
-                            if (b.id != blockId)
+                            if (b.id != blockId && blockId != "direct" && !blockId.isEmpty())
                                 continue;
                             for (auto& p : b.params)
                             {
@@ -3870,13 +3873,178 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                                         }
                                         else
                                         {
-                                            g.setFont(juce::Font(9.5f, juce::Font::bold));
-                                            g.setColour(itemActive ? MiMOLookAndFeel::fountainInk : MiMOLookAndFeel::inkMuted);
-                                            g.drawText(item.label, static_cast<int>(row.getX() + 6), static_cast<int>(row.getY()), static_cast<int>(row.getWidth() - 95), static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
+                                            // 1. Calcola il valore live normalizzato [0.0 .. 1.0] per questo asse / parametro
+                                            const bool hasPrimary = latestEyeState.hasHand;
+                                            const bool hasSecondary = latestEyeState.hasSecondaryHand;
+                                            const bool hasAnyHand = hasPrimary || hasSecondary;
 
-                                            g.setFont(juce::Font(8.0f, juce::Font::plain));
-                                            g.setColour(MiMOLookAndFeel::inkMuted);
-                                            g.drawText(itemActive ? item.hint : "(spento)", static_cast<int>(row.getRight() - 90), static_cast<int>(row.getY()), 86, static_cast<int>(row.getHeight()), juce::Justification::centredRight);
+                                            float liveVal = -1.0f;
+                                            if (itemActive)
+                                            {
+                                                const bool isSx = (sub.parentGroup == "eye_sx" || sub.id.contains("sx") || item.pinId.startsWith("mod:sx_"));
+                                                const bool useSecondaryForDx = !hasPrimary && hasSecondary;
+                                                const bool usePrimaryForSx = !hasSecondary && hasPrimary;
+
+                                                const float pX = hasPrimary ? latestEyeState.palmX : (useSecondaryForDx ? latestEyeState.secondaryPalmX : -1.0f);
+                                                const float pY = hasPrimary ? latestEyeState.palmY : (useSecondaryForDx ? latestEyeState.secondaryPalmY : -1.0f);
+                                                const float pZ = hasPrimary ? latestEyeState.palmZ : (useSecondaryForDx ? latestEyeState.secondaryPalmZ : -1.0f);
+                                                const float pFist = hasPrimary ? latestEyeState.fist : (useSecondaryForDx ? latestEyeState.secondaryFist : -1.0f);
+                                                const float pTilt = hasPrimary ? latestEyeState.handTilt : (useSecondaryForDx ? latestEyeState.secondaryHandTilt : -1.0f);
+
+                                                const float sX = hasSecondary ? latestEyeState.secondaryPalmX : (usePrimaryForSx ? latestEyeState.palmX : -1.0f);
+                                                const float sY = hasSecondary ? latestEyeState.secondaryPalmY : (usePrimaryForSx ? latestEyeState.palmY : -1.0f);
+                                                const float sZ = hasSecondary ? latestEyeState.secondaryPalmZ : (usePrimaryForSx ? latestEyeState.palmZ : -1.0f);
+                                                const float sFist = hasSecondary ? latestEyeState.secondaryFist : (usePrimaryForSx ? latestEyeState.fist : -1.0f);
+                                                const float sTilt = hasSecondary ? latestEyeState.secondaryHandTilt : (usePrimaryForSx ? latestEyeState.handTilt : -1.0f);
+
+                                                auto getFinger = [&](int fIdx, bool sx) -> float {
+                                                    if (!sx)
+                                                    {
+                                                        if (hasPrimary) return latestEyeState.fingerFlex[static_cast<size_t>(fIdx)];
+                                                        if (useSecondaryForDx) return latestEyeState.secondaryFingerFlex[static_cast<size_t>(fIdx)];
+                                                    }
+                                                    else
+                                                    {
+                                                        if (hasSecondary) return latestEyeState.secondaryFingerFlex[static_cast<size_t>(fIdx)];
+                                                        if (usePrimaryForSx) return latestEyeState.fingerFlex[static_cast<size_t>(fIdx)];
+                                                    }
+                                                    return -1.0f;
+                                                };
+
+                                                if (hasAnyHand)
+                                                {
+                                                    if (!isSx)
+                                                    {
+                                                        if (item.pinId == "mod:dx_x" || item.pinId == "mod:x") liveVal = pX;
+                                                        else if (item.pinId == "mod:dx_y" || item.pinId == "mod:y") liveVal = pY;
+                                                        else if (item.pinId == "mod:dx_z" || item.pinId == "mod:z" || item.pinId == "mod:mot") liveVal = pZ;
+                                                        else if (item.pinId == "mod:dx_fist" || item.pinId == "mod:fist") liveVal = pFist;
+                                                        else if (item.pinId == "mod:dx_tilt" || item.pinId == "mod:tilt") liveVal = pTilt;
+                                                        else if (item.pinId == "mod:dx_thumb" || item.pinId == "mod:thumb") liveVal = getFinger(0, false);
+                                                        else if (item.pinId == "mod:dx_idx" || item.pinId == "mod:idx" || item.pinId == "mod:pinch_idx") liveVal = getFinger(1, false);
+                                                        else if (item.pinId == "mod:dx_mid" || item.pinId == "mod:mid" || item.pinId == "mod:pinch_mid") liveVal = getFinger(2, false);
+                                                        else if (item.pinId == "mod:dx_rng" || item.pinId == "mod:rng" || item.pinId == "mod:pinch_rng") liveVal = getFinger(3, false);
+                                                        else if (item.pinId == "mod:dx_pky" || item.pinId == "mod:pky" || item.pinId == "mod:pinch_pky") liveVal = getFinger(4, false);
+                                                    }
+                                                    else
+                                                    {
+                                                        if (item.pinId == "mod:sx_x") liveVal = sX;
+                                                        else if (item.pinId == "mod:sx_y") liveVal = sY;
+                                                        else if (item.pinId == "mod:sx_z") liveVal = sZ;
+                                                        else if (item.pinId == "mod:sx_fist") liveVal = sFist;
+                                                        else if (item.pinId == "mod:sx_tilt") liveVal = sTilt;
+                                                        else if (item.pinId == "mod:sx_thumb") liveVal = getFinger(0, true);
+                                                        else if (item.pinId == "mod:sx_idx") liveVal = getFinger(1, true);
+                                                        else if (item.pinId == "mod:sx_mid") liveVal = getFinger(2, true);
+                                                        else if (item.pinId == "mod:sx_rng") liveVal = getFinger(3, true);
+                                                        else if (item.pinId == "mod:sx_pky") liveVal = getFinger(4, true);
+                                                    }
+                                                }
+                                                else if (isCameraRecording)
+                                                {
+                                                    const float optX = juce::jlimit(0.0f, 1.0f, (realCameraCentroidX.load() + 1.0f) * 0.5f);
+                                                    const float optY = juce::jlimit(0.0f, 1.0f, 1.0f - (realCameraCentroidY.load() + 1.0f) * 0.5f);
+                                                    float optZ = realCameraMotion.load();
+                                                    if (cameraTrackingMode == CameraTrackingMode::Light)
+                                                        optZ = realCameraBrightness.load();
+                                                    else if (cameraTrackingMode == CameraTrackingMode::Presence)
+                                                        optZ = juce::jlimit(0.0f, 1.0f, 1.0f - std::hypot(realCameraCentroidX.load(), realCameraCentroidY.load()) * 0.65f);
+                                                    const float optFist = realCameraMotion.load();
+
+                                                    if (item.pinId.contains("_x") || item.pinId == "mod:x") liveVal = optX;
+                                                    else if (item.pinId.contains("_y") || item.pinId == "mod:y") liveVal = optY;
+                                                    else if (item.pinId.contains("_z") || item.pinId == "mod:z" || item.pinId == "mod:mot") liveVal = optZ;
+                                                    else if (item.pinId.contains("_fist") || item.pinId == "mod:fist") liveVal = optFist;
+                                                    else if (item.pinId.contains("_tilt") || item.pinId == "mod:tilt") liveVal = optX;
+                                                    else liveVal = optFist;
+                                                }
+                                            }
+
+                                            // 2. Etichetta del nodo modulazione
+                                            g.setFont(juce::Font(9.0f, juce::Font::bold));
+                                            g.setColour(itemActive ? MiMOLookAndFeel::fountainInk : MiMOLookAndFeel::inkMuted);
+                                            g.drawText(item.label, static_cast<int>(row.getX() + 6), static_cast<int>(row.getY()), 105, static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
+
+                                            // 3. Verifica se c'e' un cavo collegato a questo pin
+                                            juce::String connDest;
+                                            for (const auto& c : cables)
+                                            {
+                                                if (c.sourceNodeId == node.id && c.sourcePinId == item.pinId)
+                                                {
+                                                    const auto paramSpec = c.targetPinId.fromFirstOccurrenceOf("param:", false, false);
+                                                    const auto pKey = paramSpec.fromFirstOccurrenceOf(".", false, false);
+                                                    for (const auto& on : nodes)
+                                                    {
+                                                        if (on.id == c.targetNodeId)
+                                                        {
+                                                            for (const auto& dp : on.directParams)
+                                                            {
+                                                                if (dp.key == pKey) { connDest = dp.label; break; }
+                                                            }
+                                                            if (connDest.isEmpty())
+                                                            {
+                                                                for (const auto& b : on.innerBlocks)
+                                                                {
+                                                                    for (const auto& ip : b.params)
+                                                                    {
+                                                                        if (ip.key == pKey) { connDest = ip.label; break; }
+                                                                    }
+                                                                }
+                                                            }
+                                                            if (connDest.isEmpty()) connDest = on.label;
+                                                            break;
+                                                        }
+                                                    }
+                                                    break;
+                                                }
+                                            }
+
+                                            // 4. Disegna Mini Gauge Bar & Percentuale Live
+                                            const float rightPad = 4.0f;
+                                            const float pctW = 32.0f;
+                                            const float gaugeW = 50.0f;
+                                            const float gaugeH = 9.0f;
+
+                                            const float pctX = row.getRight() - rightPad - pctW;
+                                            const float gaugeX = pctX - 4.0f - gaugeW;
+                                            const float gaugeY = row.getCentreY() - gaugeH * 0.5f;
+
+                                            if (connDest.isNotEmpty())
+                                            {
+                                                g.setFont(juce::Font(7.5f, juce::Font::bold));
+                                                g.setColour(itemCol.withAlpha(0.95f));
+                                                const float tagX = row.getX() + 106.0f;
+                                                const float tagW = gaugeX - tagX - 2.0f;
+                                                if (tagW > 18.0f)
+                                                    g.drawText(juce::String(juce::CharPointer_UTF8("\xe2\x9e\x94 ")) + connDest,
+                                                               static_cast<int>(tagX), static_cast<int>(row.getY()), static_cast<int>(tagW), static_cast<int>(row.getHeight()),
+                                                               juce::Justification::centredRight, true);
+                                            }
+
+                                            juce::Rectangle<float> gaugeTrack(gaugeX, gaugeY, gaugeW, gaugeH);
+                                            g.setColour(juce::Colour(0xFF14171E));
+                                            g.fillRoundedRectangle(gaugeTrack, 3.0f);
+                                            g.setColour(juce::Colours::white.withAlpha(0.12f));
+                                            g.drawRoundedRectangle(gaugeTrack, 3.0f, 0.7f);
+
+                                            if (liveVal >= 0.0f && itemActive)
+                                            {
+                                                const float clampedVal = juce::jlimit(0.0f, 1.0f, liveVal);
+                                                juce::Rectangle<float> fillBar(gaugeTrack.getX(), gaugeTrack.getY(), gaugeTrack.getWidth() * clampedVal, gaugeTrack.getHeight());
+                                                g.setColour(itemCol.withAlpha(0.85f));
+                                                g.fillRoundedRectangle(fillBar, 3.0f);
+
+                                                const int pct = juce::roundToInt(clampedVal * 100.0f);
+                                                g.setFont(juce::Font(8.5f, juce::Font::bold));
+                                                g.setColour(MiMOLookAndFeel::fountainInk);
+                                                g.drawText(juce::String(pct) + "%", static_cast<int>(pctX), static_cast<int>(row.getY()), static_cast<int>(pctW), static_cast<int>(row.getHeight()), juce::Justification::centredRight);
+                                            }
+                                            else
+                                            {
+                                                g.setFont(juce::Font(8.0f, juce::Font::plain));
+                                                g.setColour(MiMOLookAndFeel::inkMuted.withAlpha(0.5f));
+                                                g.drawText(itemActive ? "--" : "off", static_cast<int>(pctX), static_cast<int>(row.getY()), static_cast<int>(pctW), static_cast<int>(row.getHeight()), juce::Justification::centredRight);
+                                            }
                                         }
 
                                         curY += 26.0f;
@@ -3914,9 +4082,77 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                                 }
                                 else
                                 {
-                                    g.setFont(juce::Font(8.5f, juce::Font::plain));
-                                    g.setColour(MiMOLookAndFeel::inkMuted);
-                                    g.drawText(itemActive ? item.hint : "(disattivato)", static_cast<int>(row.getX() + 115), static_cast<int>(row.getY()), static_cast<int>(row.getWidth() - 118), static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
+                                    float micVal = -1.0f;
+                                    if (item.pinId == "mod:vel") micVal = realMicVelocity.load();
+                                    else if (item.pinId == "mod:press") micVal = realMicLevel.load();
+
+                                    const float rightPad = 6.0f;
+                                    const float pctW = 34.0f;
+                                    const float gaugeW = 56.0f;
+                                    const float gaugeH = 9.0f;
+                                    const float pctX = row.getRight() - rightPad - pctW;
+                                    const float gaugeX = pctX - 4.0f - gaugeW;
+                                    const float gaugeY = row.getCentreY() - gaugeH * 0.5f;
+
+                                    juce::String connDest;
+                                    for (const auto& c : cables)
+                                    {
+                                        if (c.sourceNodeId == node.id && c.sourcePinId == item.pinId)
+                                        {
+                                            const auto paramSpec = c.targetPinId.fromFirstOccurrenceOf("param:", false, false);
+                                            const auto pKey = paramSpec.fromFirstOccurrenceOf(".", false, false);
+                                            for (const auto& on : nodes)
+                                            {
+                                                if (on.id == c.targetNodeId)
+                                                {
+                                                    for (const auto& dp : on.directParams)
+                                                    {
+                                                        if (dp.key == pKey) { connDest = dp.label; break; }
+                                                    }
+                                                    if (connDest.isEmpty()) connDest = on.label;
+                                                    break;
+                                                }
+                                            }
+                                            break;
+                                        }
+                                    }
+
+                                    if (connDest.isNotEmpty())
+                                    {
+                                        g.setFont(juce::Font(8.0f, juce::Font::bold));
+                                        g.setColour(itemCol.withAlpha(0.95f));
+                                        const float tagX = row.getX() + 95.0f;
+                                        const float tagW = gaugeX - tagX - 2.0f;
+                                        if (tagW > 16.0f)
+                                            g.drawText(juce::String(juce::CharPointer_UTF8("\xe2\x9e\x94 ")) + connDest,
+                                                       static_cast<int>(tagX), static_cast<int>(row.getY()), static_cast<int>(tagW), static_cast<int>(row.getHeight()),
+                                                       juce::Justification::centredRight, true);
+                                    }
+
+                                    juce::Rectangle<float> gaugeTrack(gaugeX, gaugeY, gaugeW, gaugeH);
+                                    g.setColour(juce::Colour(0xFF14171E));
+                                    g.fillRoundedRectangle(gaugeTrack, 3.0f);
+                                    g.setColour(juce::Colours::white.withAlpha(0.12f));
+                                    g.drawRoundedRectangle(gaugeTrack, 3.0f, 0.7f);
+
+                                    if (micVal >= 0.0f && itemActive)
+                                    {
+                                        const float clampedVal = juce::jlimit(0.0f, 1.0f, micVal);
+                                        juce::Rectangle<float> fillBar(gaugeTrack.getX(), gaugeTrack.getY(), gaugeTrack.getWidth() * clampedVal, gaugeTrack.getHeight());
+                                        g.setColour(itemCol.withAlpha(0.85f));
+                                        g.fillRoundedRectangle(fillBar, 3.0f);
+
+                                        const int pct = juce::roundToInt(clampedVal * 100.0f);
+                                        g.setFont(juce::Font(8.5f, juce::Font::bold));
+                                        g.setColour(MiMOLookAndFeel::fountainInk);
+                                        g.drawText(juce::String(pct) + "%", static_cast<int>(pctX), static_cast<int>(row.getY()), static_cast<int>(pctW), static_cast<int>(row.getHeight()), juce::Justification::centredRight);
+                                    }
+                                    else
+                                    {
+                                        g.setFont(juce::Font(8.0f, juce::Font::plain));
+                                        g.setColour(MiMOLookAndFeel::inkMuted.withAlpha(0.5f));
+                                        g.drawText(itemActive ? "--" : "off", static_cast<int>(pctX), static_cast<int>(row.getY()), static_cast<int>(pctW), static_cast<int>(row.getHeight()), juce::Justification::centredRight);
+                                    }
                                 }
 
                                 curY += 26.0f;
@@ -7678,9 +7914,9 @@ void MainComponent::mouseUp(const juce::MouseEvent& e)
                 const auto& srcPin  = cableSourceIsOutput ? cableSourcePinId  : pin.pinId;
                 const auto& dstNode = cableSourceIsOutput ? pin.nodeId        : cableSourceNodeId;
                 const auto& dstPin  = cableSourceIsOutput ? pin.pinId         : cableSourcePinId;
-                const bool isMod = cableSourceIsMod;
+                const bool isMod = cableSourceIsMod || pin.isMod;
                 const bool isTrig = cableSourceIsTrigger || pinIsTrig;
-                const juce::Colour cableCol = isTrig ? juce::Colour(0xFFFF7A18) : (isMod ? cableSourceColour : MiMOLookAndFeel::fountainInk);
+                const juce::Colour cableCol = isTrig ? juce::Colour(0xFFFF7A18) : (isMod ? (cableSourceIsOutput ? cableSourceColour : pin.colour) : MiMOLookAndFeel::fountainInk);
 
                 // Regola: l'input (dstNode, dstPin) riceve al massimo un solo cavo.
                 // Se c'era già un cavo su questo ingresso, viene sostituito.

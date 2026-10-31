@@ -293,45 +293,48 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
                 }
             }
 
-            if (node.outputGroups.empty() && (node.id == "hw-drum" || node.id == "hw-mic" || node.isIntegratedMic))
+            if (node.outputGroups.empty())
             {
-                // Trigger Out (Impulso Colpo) -> Rombo Arancio Fiamma
-                const float trigY = node.isIntegratedMic ? (node.pos.y + 115.0f) : (node.pos.y + 109.0f);
-                pins.push_back({ node.id, "trigger:out", true, false,
-                                 juce::Colour(0xFFFF7A18), { node.pos.x + node.size.x, trigY },
-                                 { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                if (node.id == "hw-drum" || node.id == "hw-mic" || node.isIntegratedMic)
+                {
+                    // Trigger Out (Impulso Colpo) -> Rombo Arancio Fiamma
+                    const float trigY = node.isIntegratedMic ? (node.pos.y + 115.0f) : (node.pos.y + 109.0f);
+                    pins.push_back({ node.id, "trigger:out", true, false,
+                                     juce::Colour(0xFFFF7A18), { node.pos.x + node.size.x, trigY },
+                                     { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
 
-                // Modulazioni CV (Velocity, Pressione) -> Triangoli orientati verso destra
-                float my = node.isIntegratedMic ? (node.pos.y + 147.0f) : (node.pos.y + 141.0f);
-                for (const auto& m : node.modOutputs)
-                {
-                    pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
-                                     { node.pos.x + node.size.x, my },
-                                     { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
-                    my += 32.0f;
+                    // Modulazioni CV (Velocity, Pressione) -> Triangoli orientati verso destra
+                    float my = node.isIntegratedMic ? (node.pos.y + 147.0f) : (node.pos.y + 141.0f);
+                    for (const auto& m : node.modOutputs)
+                    {
+                        pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
+                                         { node.pos.x + node.size.x, my },
+                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
+                        my += 32.0f;
+                    }
                 }
-            }
-            else if (node.isIntegratedCamera || node.id == "hw-webcam" || node.id == "hw-eye")
-            {
-                // Modulo Occhio: Uscite assi MediaPipe
-                float my = node.pos.y + 138.0f + 12.5f;
-                for (const auto& m : node.modOutputs)
+                else if (node.isIntegratedCamera || node.id == "hw-webcam" || node.id == "hw-eye")
                 {
-                    pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
-                                     { node.pos.x + node.size.x, my },
-                                     { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
-                    my += 30.0f;
+                    // Modulo Occhio: Uscite assi MediaPipe
+                    float my = node.pos.y + 138.0f + 12.5f;
+                    for (const auto& m : node.modOutputs)
+                    {
+                        pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
+                                         { node.pos.x + node.size.x, my },
+                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
+                        my += 30.0f;
+                    }
                 }
-            }
-            else
-            {
-                float my = node.pos.y + 118.0f;
-                for (const auto& m : node.modOutputs)
+                else
                 {
-                    pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
-                                     { node.pos.x + node.size.x, my },
-                                     { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
-                    my += 28.0f;
+                    float my = node.pos.y + 118.0f;
+                    for (const auto& m : node.modOutputs)
+                    {
+                        pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
+                                         { node.pos.x + node.size.x, my },
+                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
+                        my += 28.0f;
+                    }
                 }
             }
         }
