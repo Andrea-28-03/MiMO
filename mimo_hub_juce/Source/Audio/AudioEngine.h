@@ -459,8 +459,34 @@ public:
 
                 if (node->processor != nullptr)
                     node->processor->setParameter(paramKey, v);
+
+                // Sincronizza anche le voci integrate dedicate se il nodo corrisponde a percussioni o synth
+                const juce::String fullTag = (node->id + " " + node->label + " " + node->category).toLowerCase();
+                if (fullTag.contains("drum") || fullTag.contains("percuss") || fullTag.contains("kit"))
+                {
+                    drumKit.setParameter(paramKey, v);
+                    if (paramKey == "vol" || paramKey == "volume")
+                        drumKit.setOutputGain(v * 1.5f);
+                }
+                else if (fullTag.contains("synth") || fullTag.contains("va") || fullTag.contains("lead"))
+                {
+                    synthVoice.setParameter(paramKey, v);
+                }
                 return;
             }
+        }
+
+        // Se il nodo non è presente in graphNodes ma il suo ID richiama percussioni o synth
+        const juce::String targetLower = nodeId.toLowerCase();
+        if (targetLower.contains("drum") || targetLower.contains("percuss") || targetLower == "hw-drum")
+        {
+            drumKit.setParameter(paramKey, v);
+            if (paramKey == "vol" || paramKey == "volume")
+                drumKit.setOutputGain(v * 1.5f);
+        }
+        else if (targetLower.contains("synth"))
+        {
+            synthVoice.setParameter(paramKey, v);
         }
 
         // Fallback su parametri globali

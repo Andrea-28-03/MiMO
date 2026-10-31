@@ -376,14 +376,49 @@ mimo::HandTrackingState MainComponent::analyzeHandFrame(const juce::Image& frame
     const bool isCenterTopFaceArea = (rawPalmY < 0.68f && rawPalmX > 0.22f && rawPalmX < 0.78f);
     const bool isLargeSkinBlob = (skinRatio > 0.050f);
 
-    // Un volto in primo piano occupa la porzione centrale/superiore o una vasta area di pelle senza dita sporgenti.
-    // Rifiuta categoricamente qualsiasi volto o sagoma senza almeno 3 dita chiaramente allungate!
-    if (isCenterTopFaceArea || isLargeSkinBlob || fingerPeaks < 1)
+    // Un volto in primo piano occupa la porzione centrale/superiore o una vasta area di pelle.
+    if (isCenterTopFaceArea || isLargeSkinBlob)
     {
         st.hasHand = false;
         hasSmoothedHandState = false;
         smoothedHandState.hasHand = false;
         return st;
+    }
+
+    // Se non ci sono dita sporgenti (fingerPeaks < 1), verifica se e' un pugno chiuso compatto
+    if (fingerPeaks < 1)
+    {
+        if (skinPixelCount >= 50 && skinPixelCount <= 5500)
+        {
+            st.hasHand = true;
+            st.palmX = rawPalmX;
+            st.palmY = rawPalmY;
+            st.palmZ = rawPalmZ;
+            st.fist = 1.0f; // Pugno chiuso
+            st.handTilt = 0.5f;
+            for (int f = 0; f < 5; ++f)
+                st.fingerFlex[f] = 1.0f;
+            st.handedness = "Right";
+
+            if (hasSmoothedHandState)
+            {
+                const float alpha = 0.65f;
+                st.palmX = smoothedHandState.palmX * (1.0f - alpha) + st.palmX * alpha;
+                st.palmY = smoothedHandState.palmY * (1.0f - alpha) + st.palmY * alpha;
+                st.palmZ = smoothedHandState.palmZ * (1.0f - alpha) + st.palmZ * alpha;
+                st.fist  = smoothedHandState.fist  * (1.0f - alpha) + st.fist  * alpha;
+            }
+            smoothedHandState = st;
+            hasSmoothedHandState = true;
+            return st;
+        }
+        else
+        {
+            st.hasHand = false;
+            hasSmoothedHandState = false;
+            smoothedHandState.hasHand = false;
+            return st;
+        }
     }
 
     // Superati i test: mano rilevata!
@@ -1507,69 +1542,130 @@ void MainComponent::timerCallback()
                     const bool dxOn = isHandEnabled(false);
                     const bool sxOn = isHandEnabled(true);
 
-                    if (latestEyeState.hasHand || latestEyeState.hasSecondaryHand)
-                    {
-                        // Mano Destra (DX) o primaria
-                        if (dxOn && (c.sourcePinId == "mod:dx_x" || c.sourcePinId == "mod:x"))
-                            modVal = isGroupEnabled("eye_dx_palm") ? latestEyeState.palmX : -1.0f;
-                        else if (dxOn && (c.sourcePinId == "mod:dx_y" || c.sourcePinId == "mod:y"))
-                            modVal = isGroupEnabled("eye_dx_palm") ? latestEyeState.palmY : -1.0f;
-                        else if (dxOn && (c.sourcePinId == "mod:dx_z" || c.sourcePinId == "mod:z" || c.sourcePinId == "mod:mot"))
-                            modVal = isGroupEnabled("eye_dx_palm") ? latestEyeState.palmZ : -1.0f;
-                        else if (dxOn && (c.sourcePinId == "mod:dx_fist" || c.sourcePinId == "mod:fist"))
-                            modVal = isGroupEnabled("eye_dx_palm") ? latestEyeState.fist : -1.0f;
-                        else if (dxOn && (c.sourcePinId == "mod:dx_tilt" || c.sourcePinId == "mod:tilt"))
-                            modVal = isGroupEnabled("eye_dx_palm") ? latestEyeState.handTilt : -1.0f;
-                        else if (dxOn && (c.sourcePinId == "mod:dx_thumb" || c.sourcePinId == "mod:thumb"))
-                            modVal = isGroupEnabled("eye_dx_fingers") ? latestEyeState.fingerFlex[0] : -1.0f;
-                        else if (dxOn && (c.sourcePinId == "mod:dx_idx" || c.sourcePinId == "mod:idx" || c.sourcePinId == "mod:pinch_idx"))
-                            modVal = isGroupEnabled("eye_dx_fingers") ? latestEyeState.fingerFlex[1] : -1.0f;
-                        else if (dxOn && (c.sourcePinId == "mod:dx_mid" || c.sourcePinId == "mod:mid" || c.sourcePinId == "mod:pinch_mid"))
-                            modVal = isGroupEnabled("eye_dx_fingers") ? latestEyeState.fingerFlex[2] : -1.0f;
-                        else if (dxOn && (c.sourcePinId == "mod:dx_rng" || c.sourcePinId == "mod:rng" || c.sourcePinId == "mod:pinch_rng"))
-                            modVal = isGroupEnabled("eye_dx_fingers") ? latestEyeState.fingerFlex[3] : -1.0f;
-                        else if (dxOn && (c.sourcePinId == "mod:dx_pky" || c.sourcePinId == "mod:pky" || c.sourcePinId == "mod:pinch_pky"))
-                            modVal = isGroupEnabled("eye_dx_fingers") ? latestEyeState.fingerFlex[4] : -1.0f;
+                    const bool hasPrimary = latestEyeState.hasHand;
+                    const bool hasSecondary = latestEyeState.hasSecondaryHand;
 
-                        // Mano Sinistra (SX) o secondaria
-                        else if (sxOn && c.sourcePinId == "mod:sx_x")
-                            modVal = isGroupEnabled("eye_sx_palm") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryPalmX : (latestEyeState.handedness == "Left" ? latestEyeState.palmX : -1.0f)) : -1.0f;
-                        else if (sxOn && c.sourcePinId == "mod:sx_y")
-                            modVal = isGroupEnabled("eye_sx_palm") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryPalmY : (latestEyeState.handedness == "Left" ? latestEyeState.palmY : -1.0f)) : -1.0f;
-                        else if (sxOn && c.sourcePinId == "mod:sx_z")
-                            modVal = isGroupEnabled("eye_sx_palm") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryPalmZ : (latestEyeState.handedness == "Left" ? latestEyeState.palmZ : -1.0f)) : -1.0f;
-                        else if (sxOn && c.sourcePinId == "mod:sx_fist")
-                            modVal = isGroupEnabled("eye_sx_palm") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryFist : (latestEyeState.handedness == "Left" ? latestEyeState.fist : -1.0f)) : -1.0f;
-                        else if (sxOn && c.sourcePinId == "mod:sx_tilt")
-                            modVal = isGroupEnabled("eye_sx_palm") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryHandTilt : (latestEyeState.handedness == "Left" ? latestEyeState.handTilt : -1.0f)) : -1.0f;
-                        else if (sxOn && c.sourcePinId == "mod:sx_thumb")
-                            modVal = isGroupEnabled("eye_sx_fingers") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryFingerFlex[0] : (latestEyeState.handedness == "Left" ? latestEyeState.fingerFlex[0] : -1.0f)) : -1.0f;
-                        else if (sxOn && c.sourcePinId == "mod:sx_idx")
-                            modVal = isGroupEnabled("eye_sx_fingers") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryFingerFlex[1] : (latestEyeState.handedness == "Left" ? latestEyeState.fingerFlex[1] : -1.0f)) : -1.0f;
-                        else if (sxOn && c.sourcePinId == "mod:sx_mid")
-                            modVal = isGroupEnabled("eye_sx_fingers") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryFingerFlex[2] : (latestEyeState.handedness == "Left" ? latestEyeState.fingerFlex[2] : -1.0f)) : -1.0f;
-                        else if (sxOn && c.sourcePinId == "mod:sx_rng")
-                            modVal = isGroupEnabled("eye_sx_fingers") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryFingerFlex[3] : (latestEyeState.handedness == "Left" ? latestEyeState.fingerFlex[3] : -1.0f)) : -1.0f;
-                        else if (sxOn && c.sourcePinId == "mod:sx_pky")
-                            modVal = isGroupEnabled("eye_sx_fingers") ? (latestEyeState.hasSecondaryHand ? latestEyeState.secondaryFingerFlex[4] : (latestEyeState.handedness == "Left" ? latestEyeState.fingerFlex[4] : -1.0f)) : -1.0f;
-                    }
-                    else if (isCameraRecording) // Fallback al tracking ottico se nessuna mano e' visibile
+                    if (hasPrimary || hasSecondary)
                     {
+                        // Se una sola mano e' visibile inquadrata dalla camera, usala in modo intelligente
+                        // sia per i controlli collegati a DX che a SX (evita disconnessioni dovute a specchiatura)
+                        const bool useSecondaryForDx = !hasPrimary && hasSecondary;
+                        const bool usePrimaryForSx = !hasSecondary && hasPrimary;
+
+                        const float pX = hasPrimary ? latestEyeState.palmX : (useSecondaryForDx ? latestEyeState.secondaryPalmX : -1.0f);
+                        const float pY = hasPrimary ? latestEyeState.palmY : (useSecondaryForDx ? latestEyeState.secondaryPalmY : -1.0f);
+                        const float pZ = hasPrimary ? latestEyeState.palmZ : (useSecondaryForDx ? latestEyeState.secondaryPalmZ : -1.0f);
+                        const float pFist = hasPrimary ? latestEyeState.fist : (useSecondaryForDx ? latestEyeState.secondaryFist : -1.0f);
+                        const float pTilt = hasPrimary ? latestEyeState.handTilt : (useSecondaryForDx ? latestEyeState.secondaryHandTilt : -1.0f);
+
+                        const float sX = hasSecondary ? latestEyeState.secondaryPalmX : (usePrimaryForSx ? latestEyeState.palmX : -1.0f);
+                        const float sY = hasSecondary ? latestEyeState.secondaryPalmY : (usePrimaryForSx ? latestEyeState.palmY : -1.0f);
+                        const float sZ = hasSecondary ? latestEyeState.secondaryPalmZ : (usePrimaryForSx ? latestEyeState.palmZ : -1.0f);
+                        const float sFist = hasSecondary ? latestEyeState.secondaryFist : (usePrimaryForSx ? latestEyeState.fist : -1.0f);
+                        const float sTilt = hasSecondary ? latestEyeState.secondaryHandTilt : (usePrimaryForSx ? latestEyeState.handTilt : -1.0f);
+
+                        auto getDxFinger = [&](int idx) -> float {
+                            if (hasPrimary) return latestEyeState.fingerFlex[static_cast<size_t>(idx)];
+                            if (useSecondaryForDx) return latestEyeState.secondaryFingerFlex[static_cast<size_t>(idx)];
+                            return -1.0f;
+                        };
+                        auto getSxFinger = [&](int idx) -> float {
+                            if (hasSecondary) return latestEyeState.secondaryFingerFlex[static_cast<size_t>(idx)];
+                            if (usePrimaryForSx) return latestEyeState.fingerFlex[static_cast<size_t>(idx)];
+                            return -1.0f;
+                        };
+
+                        // Mano Destra (DX)
                         if (dxOn)
                         {
                             if (c.sourcePinId == "mod:dx_x" || c.sourcePinId == "mod:x")
-                                modVal = juce::jlimit(0.0f, 1.0f, (realCameraCentroidX.load() + 1.0f) * 0.5f);
+                                modVal = isGroupEnabled("eye_dx_palm") ? pX : -1.0f;
                             else if (c.sourcePinId == "mod:dx_y" || c.sourcePinId == "mod:y")
-                                modVal = juce::jlimit(0.0f, 1.0f, 1.0f - (realCameraCentroidY.load() + 1.0f) * 0.5f);
+                                modVal = isGroupEnabled("eye_dx_palm") ? pY : -1.0f;
                             else if (c.sourcePinId == "mod:dx_z" || c.sourcePinId == "mod:z" || c.sourcePinId == "mod:mot")
-                            {
-                                if (cameraTrackingMode == CameraTrackingMode::Light)
-                                    modVal = realCameraBrightness.load();
-                                else if (cameraTrackingMode == CameraTrackingMode::Presence)
-                                    modVal = juce::jlimit(0.0f, 1.0f, 1.0f - std::hypot(realCameraCentroidX.load(), realCameraCentroidY.load()) * 0.65f);
-                                else
-                                    modVal = realCameraMotion.load();
-                            }
+                                modVal = isGroupEnabled("eye_dx_palm") ? pZ : -1.0f;
+                            else if (c.sourcePinId == "mod:dx_fist" || c.sourcePinId == "mod:fist")
+                                modVal = isGroupEnabled("eye_dx_palm") ? pFist : -1.0f;
+                            else if (c.sourcePinId == "mod:dx_tilt" || c.sourcePinId == "mod:tilt")
+                                modVal = isGroupEnabled("eye_dx_palm") ? pTilt : -1.0f;
+                            else if (c.sourcePinId == "mod:dx_thumb" || c.sourcePinId == "mod:thumb")
+                                modVal = isGroupEnabled("eye_dx_fingers") ? getDxFinger(0) : -1.0f;
+                            else if (c.sourcePinId == "mod:dx_idx" || c.sourcePinId == "mod:idx" || c.sourcePinId == "mod:pinch_idx")
+                                modVal = isGroupEnabled("eye_dx_fingers") ? getDxFinger(1) : -1.0f;
+                            else if (c.sourcePinId == "mod:dx_mid" || c.sourcePinId == "mod:mid" || c.sourcePinId == "mod:pinch_mid")
+                                modVal = isGroupEnabled("eye_dx_fingers") ? getDxFinger(2) : -1.0f;
+                            else if (c.sourcePinId == "mod:dx_rng" || c.sourcePinId == "mod:rng" || c.sourcePinId == "mod:pinch_rng")
+                                modVal = isGroupEnabled("eye_dx_fingers") ? getDxFinger(3) : -1.0f;
+                            else if (c.sourcePinId == "mod:dx_pky" || c.sourcePinId == "mod:pky" || c.sourcePinId == "mod:pinch_pky")
+                                modVal = isGroupEnabled("eye_dx_fingers") ? getDxFinger(4) : -1.0f;
+                        }
+
+                        // Mano Sinistra (SX)
+                        if (sxOn && modVal < 0.0f)
+                        {
+                            if (c.sourcePinId == "mod:sx_x")
+                                modVal = isGroupEnabled("eye_sx_palm") ? sX : -1.0f;
+                            else if (c.sourcePinId == "mod:sx_y")
+                                modVal = isGroupEnabled("eye_sx_palm") ? sY : -1.0f;
+                            else if (c.sourcePinId == "mod:sx_z")
+                                modVal = isGroupEnabled("eye_sx_palm") ? sZ : -1.0f;
+                            else if (c.sourcePinId == "mod:sx_fist")
+                                modVal = isGroupEnabled("eye_sx_palm") ? sFist : -1.0f;
+                            else if (c.sourcePinId == "mod:sx_tilt")
+                                modVal = isGroupEnabled("eye_sx_palm") ? sTilt : -1.0f;
+                            else if (c.sourcePinId == "mod:sx_thumb")
+                                modVal = isGroupEnabled("eye_sx_fingers") ? getSxFinger(0) : -1.0f;
+                            else if (c.sourcePinId == "mod:sx_idx")
+                                modVal = isGroupEnabled("eye_sx_fingers") ? getSxFinger(1) : -1.0f;
+                            else if (c.sourcePinId == "mod:sx_mid")
+                                modVal = isGroupEnabled("eye_sx_fingers") ? getSxFinger(2) : -1.0f;
+                            else if (c.sourcePinId == "mod:sx_rng")
+                                modVal = isGroupEnabled("eye_sx_fingers") ? getSxFinger(3) : -1.0f;
+                            else if (c.sourcePinId == "mod:sx_pky")
+                                modVal = isGroupEnabled("eye_sx_fingers") ? getSxFinger(4) : -1.0f;
+                        }
+                    }
+                    else if (isCameraRecording) // Fallback al tracking ottico se nessuna mano e' visibile
+                    {
+                        const float optX = juce::jlimit(0.0f, 1.0f, (realCameraCentroidX.load() + 1.0f) * 0.5f);
+                        const float optY = juce::jlimit(0.0f, 1.0f, 1.0f - (realCameraCentroidY.load() + 1.0f) * 0.5f);
+                        float optZ = realCameraMotion.load();
+                        if (cameraTrackingMode == CameraTrackingMode::Light)
+                            optZ = realCameraBrightness.load();
+                        else if (cameraTrackingMode == CameraTrackingMode::Presence)
+                            optZ = juce::jlimit(0.0f, 1.0f, 1.0f - std::hypot(realCameraCentroidX.load(), realCameraCentroidY.load()) * 0.65f);
+
+                        const float optFist = realCameraMotion.load();
+
+                        if (dxOn)
+                        {
+                            if (c.sourcePinId == "mod:dx_x" || c.sourcePinId == "mod:x")
+                                modVal = optX;
+                            else if (c.sourcePinId == "mod:dx_y" || c.sourcePinId == "mod:y")
+                                modVal = optY;
+                            else if (c.sourcePinId == "mod:dx_z" || c.sourcePinId == "mod:z" || c.sourcePinId == "mod:mot")
+                                modVal = optZ;
+                            else if (c.sourcePinId == "mod:dx_fist" || c.sourcePinId == "mod:fist")
+                                modVal = optFist;
+                            else if (c.sourcePinId == "mod:dx_tilt" || c.sourcePinId == "mod:tilt")
+                                modVal = optX;
+                            else if (c.sourcePinId.startsWith("mod:dx_"))
+                                modVal = optFist;
+                        }
+                        if (sxOn && modVal < 0.0f)
+                        {
+                            if (c.sourcePinId == "mod:sx_x")
+                                modVal = optX;
+                            else if (c.sourcePinId == "mod:sx_y")
+                                modVal = optY;
+                            else if (c.sourcePinId == "mod:sx_z")
+                                modVal = optZ;
+                            else if (c.sourcePinId == "mod:sx_fist")
+                                modVal = optFist;
+                            else if (c.sourcePinId == "mod:sx_tilt")
+                                modVal = optX;
+                            else if (c.sourcePinId.startsWith("mod:sx_"))
+                                modVal = optFist;
                         }
                     }
                 }
@@ -1591,7 +1687,7 @@ void MainComponent::timerCallback()
                     const auto blockId = paramSpec.upToFirstOccurrenceOf(".", false, false);
                     const auto paramKey = paramSpec.fromFirstOccurrenceOf(".", false, false);
 
-                    for (auto& dst : nodes)
+                    for auto& dst : nodes)
                     {
                         if (dst.id != c.targetNodeId)
                             continue;
@@ -1602,8 +1698,8 @@ void MainComponent::timerCallback()
                             if (dp.key == paramKey)
                             {
                                 const float curNorm = dp.getNormalized();
-                                const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.70f + modVal * 0.30f);
-                                if (std::abs(nextNorm - curNorm) > 0.002f)
+                                const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.40f + modVal * 0.60f);
+                                if (std::abs(nextNorm - curNorm) > 0.001f)
                                 {
                                     dp.setFromNormalized(nextNorm);
                                     audioEngine.setModulation(dst.id, dp.key, nextNorm);
@@ -1622,8 +1718,8 @@ void MainComponent::timerCallback()
                                 if (p.key == paramKey)
                                 {
                                     const float curNorm = p.getNormalized();
-                                    const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.70f + modVal * 0.30f);
-                                    if (std::abs(nextNorm - curNorm) > 0.002f)
+                                    const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.40f + modVal * 0.60f);
+                                    if (std::abs(nextNorm - curNorm) > 0.001f)
                                     {
                                         p.setFromNormalized(nextNorm);
                                         audioEngine.setModulation(dst.id, p.key, nextNorm);
@@ -1911,11 +2007,11 @@ void MainComponent::initDefaultStudioGraph()
         grpDxPalm.parentGroup = "eye_dx";
         grpDxPalm.isExpanded = true;
         grpDxPalm.items = {
-            { "mod:dx_x",    "Asse X (Orizz.)",  MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
-            { "mod:dx_y",    "Asse Y (Vert.)",   MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
-            { "mod:dx_z",    "Profondita Z",     MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" },
-            { "mod:dx_fist", "Chiusura Pugno",   MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
-            { "mod:dx_tilt", "Rotazione Mano",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
+            { "mod:dx_x",    "Posizione Orizz. X",  MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
+            { "mod:dx_y",    "Altezza Vert. Y",   MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
+            { "mod:dx_z",    "Distanza / Prof. Z",     MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" },
+            { "mod:dx_fist", "Apertura / Pugno",   MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
+            { "mod:dx_tilt", "Inclinazione Polso",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
         };
 
         // 1.2 Dita & Falangi (DX)
@@ -1925,11 +2021,11 @@ void MainComponent::initDefaultStudioGraph()
         grpDxFingers.parentGroup = "eye_dx";
         grpDxFingers.isExpanded = false;
         grpDxFingers.items = {
-            { "mod:dx_thumb", "Pollice Flex",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
-            { "mod:dx_idx",   "Indice Flex",   MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
-            { "mod:dx_mid",   "Medio Flex",    MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
-            { "mod:dx_rng",   "Anulare Flex",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
-            { "mod:dx_pky",   "Mignolo Flex",  MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" }
+            { "mod:dx_thumb", "Chiusura Pollice",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
+            { "mod:dx_idx",   "Chiusura Indice",   MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
+            { "mod:dx_mid",   "Chiusura Medio",    MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
+            { "mod:dx_rng",   "Chiusura Anulare",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
+            { "mod:dx_pky",   "Chiusura Mignolo",  MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" }
         };
 
         // 1.3 Trigger Pinch (DX)
@@ -1959,11 +2055,11 @@ void MainComponent::initDefaultStudioGraph()
         grpSxPalm.parentGroup = "eye_sx";
         grpSxPalm.isExpanded = true;
         grpSxPalm.items = {
-            { "mod:sx_x",    "Asse X (Orizz.)",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_y",    "Asse Y (Vert.)",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_z",    "Profondita Z",     MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_fist", "Chiusura Pugno",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_tilt", "Rotazione Mano",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
+            { "mod:sx_x",    "Posizione Orizz. X",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_y",    "Altezza Vert. Y",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_z",    "Distanza / Prof. Z",     MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_fist", "Apertura / Pugno",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_tilt", "Inclinazione Polso",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
         };
 
         // 2.2 Dita & Falangi (SX)
@@ -1973,11 +2069,11 @@ void MainComponent::initDefaultStudioGraph()
         grpSxFingers.parentGroup = "eye_sx";
         grpSxFingers.isExpanded = false;
         grpSxFingers.items = {
-            { "mod:sx_thumb", "Pollice Flex",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_idx",   "Indice Flex",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_mid",   "Medio Flex",    MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_rng",   "Anulare Flex",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_pky",   "Mignolo Flex",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
+            { "mod:sx_thumb", "Chiusura Pollice",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_idx",   "Chiusura Indice",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_mid",   "Chiusura Medio",    MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_rng",   "Chiusura Anulare",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_pky",   "Chiusura Mignolo",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
         };
 
         // 2.3 Trigger Pinch (SX)
@@ -3707,10 +3803,11 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
 
                                         g.setFont(juce::Font(9.5f, juce::Font::bold));
                                         g.setColour(itemActive ? MiMOLookAndFeel::fountainInk : MiMOLookAndFeel::inkMuted);
-                                        g.drawText(item.label, static_cast<int>(row.getX() + 6), static_cast<int>(row.getY()), 68, static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
 
                                         if (item.isTrigger)
                                         {
+                                            g.drawText(item.label, static_cast<int>(row.getX() + 6), static_cast<int>(row.getY()), 68, static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
+
                                             const bool isSec = (sub.parentGroup == "eye_sx" || sub.id.contains("sx"));
                                             int fSub = 0;
                                             if (item.pinId.endsWith("_mid")) fSub = 1;
@@ -3773,9 +3870,13 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
                                         }
                                         else
                                         {
+                                            g.setFont(juce::Font(9.5f, juce::Font::bold));
+                                            g.setColour(itemActive ? MiMOLookAndFeel::fountainInk : MiMOLookAndFeel::inkMuted);
+                                            g.drawText(item.label, static_cast<int>(row.getX() + 6), static_cast<int>(row.getY()), static_cast<int>(row.getWidth() - 95), static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
+
                                             g.setFont(juce::Font(8.0f, juce::Font::plain));
                                             g.setColour(MiMOLookAndFeel::inkMuted);
-                                            g.drawText(itemActive ? item.hint : "(disattivato)", static_cast<int>(row.getX() + 104), static_cast<int>(row.getY()), static_cast<int>(row.getWidth() - 106), static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
+                                            g.drawText(itemActive ? item.hint : "(spento)", static_cast<int>(row.getRight() - 90), static_cast<int>(row.getY()), 86, static_cast<int>(row.getHeight()), juce::Justification::centredRight);
                                         }
 
                                         curY += 26.0f;

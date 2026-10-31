@@ -329,11 +329,11 @@ void syncEyeNodeOutputsWithDetailSettings(CanvasNode& eyeNode,
         grpDxPalm.parentGroup = "eye_dx";
         grpDxPalm.isExpanded = true;
         grpDxPalm.items = {
-            { "mod:dx_x",    "Asse X (Orizz.)",  MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
-            { "mod:dx_y",    "Asse Y (Vert.)",   MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
-            { "mod:dx_z",    "Profondita Z",     MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" },
-            { "mod:dx_fist", "Chiusura Pugno",   MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
-            { "mod:dx_tilt", "Rotazione Mano",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
+            { "mod:dx_x",    "Posizione Orizz. X",  MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
+            { "mod:dx_y",    "Altezza Vert. Y",   MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
+            { "mod:dx_z",    "Distanza / Prof. Z",     MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" },
+            { "mod:dx_fist", "Apertura / Pugno",   MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
+            { "mod:dx_tilt", "Inclinazione Polso",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
         };
 
         NodeOutputGroup grpDxFingers;
@@ -342,11 +342,11 @@ void syncEyeNodeOutputsWithDetailSettings(CanvasNode& eyeNode,
         grpDxFingers.parentGroup = "eye_dx";
         grpDxFingers.isExpanded = false;
         grpDxFingers.items = {
-            { "mod:dx_thumb", "Pollice Flex",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
-            { "mod:dx_idx",   "Indice Flex",   MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
-            { "mod:dx_mid",   "Medio Flex",    MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
-            { "mod:dx_rng",   "Anulare Flex",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
-            { "mod:dx_pky",   "Mignolo Flex",  MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" }
+            { "mod:dx_thumb", "Chiusura Pollice",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
+            { "mod:dx_idx",   "Chiusura Indice",   MiMOLookAndFeel::crayonCyan,   false, "(verso manopola)" },
+            { "mod:dx_mid",   "Chiusura Medio",    MiMOLookAndFeel::crayonSage,   false, "(verso manopola)" },
+            { "mod:dx_rng",   "Chiusura Anulare",  MiMOLookAndFeel::crayonOchre,  false, "(verso manopola)" },
+            { "mod:dx_pky",   "Chiusura Mignolo",  MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" }
         };
 
         NodeOutputGroup grpDxPinches;
@@ -374,11 +374,11 @@ void syncEyeNodeOutputsWithDetailSettings(CanvasNode& eyeNode,
         grpSxPalm.parentGroup = "eye_sx";
         grpSxPalm.isExpanded = true;
         grpSxPalm.items = {
-            { "mod:sx_x",    "Asse X (Orizz.)",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_y",    "Asse Y (Vert.)",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_z",    "Profondita Z",     MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_fist", "Chiusura Pugno",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_tilt", "Rotazione Mano",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
+            { "mod:sx_x",    "Posizione Orizz. X",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_y",    "Altezza Vert. Y",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_z",    "Distanza / Prof. Z",     MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_fist", "Apertura / Pugno",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_tilt", "Inclinazione Polso",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
         };
 
         NodeOutputGroup grpSxFingers;
@@ -387,11 +387,11 @@ void syncEyeNodeOutputsWithDetailSettings(CanvasNode& eyeNode,
         grpSxFingers.parentGroup = "eye_sx";
         grpSxFingers.isExpanded = false;
         grpSxFingers.items = {
-            { "mod:sx_thumb", "Pollice Flex",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_idx",   "Indice Flex",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_mid",   "Medio Flex",    MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_rng",   "Anulare Flex",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
-            { "mod:sx_pky",   "Mignolo Flex",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
+            { "mod:sx_thumb", "Chiusura Pollice",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_idx",   "Chiusura Indice",   MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_mid",   "Chiusura Medio",    MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_rng",   "Chiusura Anulare",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" },
+            { "mod:sx_pky",   "Chiusura Mignolo",  MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
         };
 
         NodeOutputGroup grpSxPinches;
