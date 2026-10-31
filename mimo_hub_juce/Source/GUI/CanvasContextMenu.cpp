@@ -363,7 +363,7 @@ void CanvasContextMenu::showContextMenu(MainComponent& comp, juce::Point<float> 
         return addMenu;
     }());
 
-    addAction(m, "Incolla (Ctrl+V)", comp.undoManager.hasClipboardNodes(), [safeComp = juce::Component::SafePointer<MainComponent>(&comp)]() {
+    addAction(m, "Incolla (Ctrl+V)", comp.undoManager.hasClipboard(), [safeComp = juce::Component::SafePointer<MainComponent>(&comp)]() {
         if (auto* c = safeComp.getComponent())
             c->pasteNodes();
     });
