@@ -559,7 +559,7 @@ CanvasNode CanvasGraphHelper::createFxNodeFromCatalog(const CatalogItem& fx, juc
     node.targetPos = worldPos;
     node.isAnimatingPos = false;
     node.isVerticalFlow = isVertical;
-    node.size = isVertical ? juce::Point<float>{ 245.0f, 175.0f } : juce::Point<float>{ 265.0f, 175.0f };
+    node.size = isVertical ? juce::Point<float>{ 245.0f, 195.0f } : juce::Point<float>{ 265.0f, 195.0f };
     node.crayonColour = fx.colour;
     node.innerBlocks = fx.templateBlocks;
     node.isBypassed = false;
@@ -578,7 +578,7 @@ CanvasNode CanvasGraphHelper::createInstrumentNodeFromCatalog(const CatalogItem&
     node.targetPos = worldPos;
     node.isAnimatingPos = false;
     node.isVerticalFlow = false;
-    node.size = { 285.0f, 175.0f };
+    node.size = { 295.0f, 195.0f };
     node.crayonColour = item.colour;
     node.hasInstrument = true;
     node.instrumentName = item.name;
@@ -591,7 +591,7 @@ CanvasNode CanvasGraphHelper::createInstrumentNodeFromCatalog(const CatalogItem&
     {
         node.label = "Percussioni";
         node.subtitle = "4 Voci discrete con trigger dedicati";
-        node.size = { 330.0f, 185.0f };
+        node.size = { 340.0f, 205.0f };
         node.isDrumAdvanced = false;
         node.drumEditVoice = 0;
         node.drumPresetIdx = 0;
@@ -650,7 +650,7 @@ CanvasNode CanvasGraphHelper::createInstrumentNodeFromCatalog(const CatalogItem&
     }
     else if (item.id.containsIgnoreCase("lfo") || item.id.containsIgnoreCase("mod_lfo"))
     {
-        node.size = { 285.0f, 185.0f };
+        node.size = { 295.0f, 195.0f };
         node.directParams = {
             { "rate",  "Velocita", 0.05f, 20.0f, 1.5f, 1.5f, " Hz", true },
             { "wave",  "Forma",    0.0f, 3.0f, 0.0f, 0.0f, "",      true },

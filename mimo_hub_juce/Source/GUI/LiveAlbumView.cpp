@@ -276,9 +276,11 @@ void LiveAlbumView::paintLiveAlbumView(juce::Graphics& g, MainComponent& comp)
             {
                 juce::Rectangle<float> onAirBadge(slotBox.getX() + 10.0f, slotBox.getBottom() - 26.0f, slotBox.getWidth() - 20.0f, 18.0f);
                 MiMOLookAndFeel::drawSketchBox(g, onAirBadge, 1200 + i, MiMOLookAndFeel::crayonSage, 0.85f);
+                g.setColour(MiMOLookAndFeel::crayonCherry);
+                g.fillEllipse(onAirBadge.getX() + 8.0f, onAirBadge.getCentreY() - 3.5f, 7.0f, 7.0f);
                 g.setColour(MiMOLookAndFeel::fountainInk);
-                g.setFont(juce::Font(10.0f, juce::Font::bold));
-                g.drawText("● ATTIVA IN USCITA MASTER", onAirBadge.toNearestInt(), juce::Justification::centred);
+                g.setFont(juce::Font(9.5f, juce::Font::bold));
+                g.drawText("ATTIVA IN USCITA MASTER", static_cast<int>(onAirBadge.getX() + 18), static_cast<int>(onAirBadge.getY()), static_cast<int>(onAirBadge.getWidth() - 22), static_cast<int>(onAirBadge.getHeight()), juce::Justification::centred);
             }
         }
 

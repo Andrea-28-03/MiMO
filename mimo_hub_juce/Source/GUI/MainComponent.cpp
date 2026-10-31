@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "PresetCatalog.h"
+#include "ShortcutsModal.h"
 #include "../Devices/HandTracker.h"
 #include <BinaryData.h>
 #include <cmath>
@@ -569,6 +570,9 @@ void MainComponent::paint(juce::Graphics& g)
 
     if (eyeDrawerOpen)
         MiMOEyeDrawer::drawModernFlatEyeModal(g, *this);
+
+    if (shortcutsModalOpen)
+        ShortcutsModal::paint(g, *this);
 }
 
 void MainComponent::resized() {}
@@ -576,6 +580,12 @@ void MainComponent::resized() {}
 void MainComponent::mouseDown(const juce::MouseEvent& e)
 {
     currentMousePos = e.position;
+
+    if (shortcutsModalOpen)
+    {
+        if (ShortcutsModal::handleMouseDown(*this, e.position))
+            return;
+    }
 
     if (eyeDrawerOpen)
     {

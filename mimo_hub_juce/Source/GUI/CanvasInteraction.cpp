@@ -1,4 +1,5 @@
 #include "CanvasInteraction.h"
+#include "CanvasContextMenu.h"
 #include "MainComponent.h"
 #include "MiMOLookAndFeel.h"
 #include "CanvasRenderer.h"
@@ -547,6 +548,13 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
         const auto box = juce::Rectangle<float>(it->pos.x, it->pos.y, it->size.x, it->size.y);
         if (box.contains(worldPt))
         {
+            if (e.mods.isRightButtonDown())
+            {
+                comp.selectSingleNode(it->id);
+                CanvasContextMenu::showContextMenu(comp, pt);
+                return;
+            }
+
             // Tasto Elimina [X]
             const juce::Rectangle<float> closeBtn(box.getRight() - 25.0f, box.getY() + 8.0f, 18.0f, 18.0f);
             if (closeBtn.contains(worldPt))
@@ -563,14 +571,6 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
                 {
                     it->isBypassed = !it->isBypassed;
                     comp.syncAudioRoutes();
-                    comp.repaint();
-                    return;
-                }
-
-                const juce::Rectangle<float> expBtn(box.getRight() - 71.0f, box.getY() + 8.0f, 18.0f, 18.0f);
-                if (expBtn.contains(worldPt))
-                {
-                    comp.expandedNodeId = it->id;
                     comp.repaint();
                     return;
                 }
@@ -630,7 +630,8 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
     }
 
     // 7. Click su spazio vuoto: Pan libero 360° (con Tasto Destro / Centrale / Spazio) o Selezione Lasso Pastello
-    const bool isPanAction = e.mods.isRightButtonDown() || e.mods.isMiddleButtonDown() || e.mods.isAltDown() || juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);
+    const bool isRightClick = e.mods.isRightButtonDown();
+    const bool isPanAction = isRightClick || e.mods.isMiddleButtonDown() || e.mods.isAltDown() || juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);
 
     if (isPanAction)
     {
@@ -638,6 +639,11 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
         comp.dragStartMouse = pt;
         comp.dragStartOffset = comp.canvasOffset;
         comp.panVelocity = { 0.0f, 0.0f };
+        if (isRightClick)
+        {
+            comp.rightMouseDownPos = pt;
+            comp.isRightClickPan = false;
+        }
         comp.setMouseCursor(juce::MouseCursor::DraggingHandCursor);
         comp.repaint();
     }
@@ -797,6 +803,36 @@ bool CanvasInteraction::handleKeyPressed(MainComponent& comp, const juce::KeyPre
         }
     }
 
+    // Quick-Add Menu (Shift + A)
+    if (key.getModifiers().isShiftDown() && (key.getKeyCode() == 'A' || key.getKeyCode() == 'a'))
+    {
+        CanvasContextMenu::showQuickAddMenu(comp, comp.currentMousePos);
+        return true;
+    }
+
+    // Ispezione Sub-Canvas con tasto TAB (Task 2.4)
+    if (key == juce::KeyPress::tabKey)
+    {
+        if (comp.expandedNodeId.isNotEmpty())
+        {
+            comp.expandedNodeId.clear();
+            comp.repaint();
+            return true;
+        }
+        else if (comp.selectedNodeId.isNotEmpty())
+        {
+            for (const auto& n : comp.nodes)
+            {
+                if (n.id == comp.selectedNodeId && n.type == NodeType::NestedEffect && !n.innerBlocks.empty())
+                {
+                    comp.expandedNodeId = n.id;
+                    comp.repaint();
+                    return true;
+                }
+            }
+        }
+    }
+
     // Scorciatoia Modalita Notte ('N' o 'n')
     if (key.getTextCharacter() == 'n' || key.getTextCharacter() == 'N')
     {
@@ -888,6 +924,12 @@ bool CanvasInteraction::handleKeyPressed(MainComponent& comp, const juce::KeyPre
 
     if (key == juce::KeyPress::escapeKey)
     {
+        if (comp.shortcutsModalOpen)
+        {
+            comp.shortcutsModalOpen = false;
+            comp.repaint();
+            return true;
+        }
         if (comp.eyeDrawerOpen)
         {
             comp.eyeDrawerOpen = false;

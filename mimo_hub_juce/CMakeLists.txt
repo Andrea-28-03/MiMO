@@ -71,6 +71,10 @@ target_sources(MiMOHub PRIVATE
     Source/GUI/PresetCatalog.cpp
     Source/GUI/CanvasUndoManager.h
     Source/GUI/CanvasUndoManager.cpp
+    Source/GUI/CanvasContextMenu.h
+    Source/GUI/CanvasContextMenu.cpp
+    Source/GUI/ShortcutsModal.h
+    Source/GUI/ShortcutsModal.cpp
     Source/GUI/MiMOEyeDrawer.h
     Source/GUI/MiMOEyeDrawer.cpp
     Source/GUI/MainComponent.h

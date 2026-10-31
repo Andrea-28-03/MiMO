@@ -1,4 +1,5 @@
 #include "CanvasInteraction.h"
+#include "CanvasContextMenu.h"
 #include "MainComponent.h"
 #include "MiMOLookAndFeel.h"
 #include "SidebarComponent.h"
@@ -15,6 +16,9 @@ void CanvasInteraction::handleMouseDrag(MainComponent& comp, const juce::MouseEv
 
     if (comp.dragMode == MainComponent::DragMode::PanCanvas)
     {
+        if (pt.getDistanceFrom(comp.rightMouseDownPos) > 4.0f)
+            comp.isRightClickPan = true;
+
         comp.canvasOffset = comp.dragStartOffset + (pt - comp.dragStartMouse);
         comp.panVelocity = { 0.0f, 0.0f };
         comp.repaint();
@@ -486,10 +490,25 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
     }
     else
     {
+        if (comp.dragMode == MainComponent::DragMode::PanCanvas)
+        {
+            if (!comp.isRightClickPan && comp.rightMouseDownPos.getDistanceFrom({ 0.0f, 0.0f }) > 0.001f)
+            {
+                comp.dragMode = MainComponent::DragMode::None;
+                comp.rightMouseDownPos = { 0.0f, 0.0f };
+                comp.isRightClickPan = false;
+                CanvasContextMenu::showContextMenu(comp, pt);
+                comp.repaint();
+                return;
+            }
+        }
+
         if (comp.dragMode == MainComponent::DragMode::DragSettingsVolume)
             comp.saveSettings();
 
         comp.dragMode = MainComponent::DragMode::None;
+        comp.rightMouseDownPos = { 0.0f, 0.0f };
+        comp.isRightClickPan = false;
         comp.repaint();
     }
 }

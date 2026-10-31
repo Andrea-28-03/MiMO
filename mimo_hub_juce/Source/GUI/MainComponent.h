@@ -47,6 +47,8 @@ public:
     friend class BottomDock;
     friend class LiveAlbumView;
     friend class CanvasInteraction;
+    friend class CanvasContextMenu;
+    friend class ShortcutsModal;
     friend void MiMOEyeDrawer::drawModernFlatEyeModal(juce::Graphics& g, MainComponent& comp);
     friend bool MiMOEyeDrawer::handleMouseDown(MainComponent& comp, const juce::Point<float>& pt);
 
@@ -131,6 +133,7 @@ private:
     bool effectsSectionOpen = false;
     bool utilitiesSectionOpen = false;
     bool settingsOpen = false;
+    bool shortcutsModalOpen = false;
     std::vector<CatalogItem> instrumentCatalog;
     std::vector<CatalogItem> effectCatalog;
     std::vector<CatalogItem> utilityCatalog;
@@ -278,6 +281,8 @@ private:
     std::map<juce::String, juce::Point<float>> dragStartNodeOffsets;
     juce::Point<float> lassoStartWorld;
     juce::Point<float> lassoCurrentWorld;
+    juce::Point<float> rightMouseDownPos;
+    bool isRightClickPan = false;
 
     bool isNodeSelected(const juce::String& id) const
     {

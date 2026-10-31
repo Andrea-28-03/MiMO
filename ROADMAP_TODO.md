@@ -46,25 +46,25 @@
 ## 🎨 Fase 2: Interfaccia, Menu Rapidi e Nomenclatura Professionale
 *Obiettivo: Velocizzare la creazione musicale eliminando ogni conflitto grafico e gergo ambiguo.*
 
-- [ ] **2.1. Quick-Add Menu con `Shift + A`** `[@HUB @DATA]`
+- [x] **2.1. Quick-Add Menu con `Shift + A`** `[@HUB @DATA]`
   - Premendo `Shift + A` si apre un menù a comparsa direttamente alle coordinate attuali del mouse.
   - Cartelle chiuse ad albero (Strumenti, Effetti, Moduli, Utility); passando il mouse sopra una categoria (`hover`), questa si espande a cascata verso destra.
   - Cliccando sull'elemento desiderato, questo viene istanziato esattamente nella posizione del mouse.
-- [ ] **2.2. Menu Contestuale con Tasto Destro del Mouse** `[@HUB @LOGIC]`
+- [x] **2.2. Menu Contestuale con Tasto Destro del Mouse** `[@HUB @LOGIC]`
   - Menu dinamico e intelligente che si adatta all'elemento cliccato:
     - *Su Canvas libero:* Aggiungi, Incolla, Resetta Vista, Centra MiMO.
     - *Su Modulo Hardware:* Impostazioni canale, Assegna Strumento, Rimuovi.
     - *Su Strumento / Effetto:* Duplica, Bypassa, Rinomina, Salva come Preset, Elimina.
     - *Su Base MiMO:* Livello Master, Opzioni Routing, Pulisci Cavi Muti.
-- [ ] **2.3. Sezione "Scorciatoie" nelle Impostazioni** `[@HUB @DATA]`
+- [x] **2.3. Sezione "Scorciatoie" nelle Impostazioni** `[@HUB @DATA]`
   - Pannello dedicato con l'elenco di tutte le shortcut da tastiera con possibilità di personalizzazione.
-- [ ] **2.4. Eliminazione Conflitti Grafici & Accesso Sub-Canvas (Doppio Click / TAB)** `[@HUB @LOGIC @AUDIO]`
+- [x] **2.4. Eliminazione Conflitti Grafici & Accesso Sub-Canvas (Doppio Click / TAB)** `[@HUB @LOGIC @AUDIO]`
   - Rimozione del tasto "espandi" che si sovrapponeva al pulsante power/bypass.
   - L'ispezione della struttura interna del nodo avviene ora con **doppio click** o premendo il tasto **TAB** sul nodo selezionato.
   - Correzione della posizione dei jack inferiori per non sovrapporsi alle manopole del tempo/decay.
-- [ ] **2.5. Correzione Caratteri e Codifica UTF-8** `[@HUB @DEVOPS]`
+- [x] **2.5. Correzione Caratteri e Codifica UTF-8** `[@HUB @DEVOPS]`
   - Rimozione di emoji e caratteri speciali non supportati su alcuni schermi Windows, sostituiti con icone vettoriali disegnate via codice (`juce::Path`).
-- [ ] **2.6. Nomenclatura Professionale della Libreria** `[@HUB @AUDIO]`
+- [x] **2.6. Nomenclatura Professionale della Libreria** `[@HUB @AUDIO]`
   - Revisione di tutti i nomi e sottotitoli del catalogo secondo gli standard del sound design e della produzione musicale (es. *Analog Ladder Filter*, *Tape Echo & Saturation*, *BBD Bucket-Brigade Chorus*, *Waveguide Acoustic Pluck*, *PolyBLEP Analog Synth*).
 
 ---

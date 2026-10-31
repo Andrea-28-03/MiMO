@@ -661,13 +661,6 @@ void CanvasRenderer::paintNestedEffectNode(juce::Graphics& g, MainComponent& com
     g.setFont(juce::Font(9.0f, juce::Font::bold));
     g.drawText(node.isBypassed ? "BYP" : "ON", pwrBtn.toNearestInt(), juce::Justification::centred);
 
-    // Tasto Espandi Struttura Interna [EXP]
-    juce::Rectangle<float> expBtn(box.getRight() - 71.0f, box.getY() + 8.0f, 18.0f, 18.0f);
-    MiMOLookAndFeel::drawSketchBox(g, expBtn, seed + 97, MiMOLookAndFeel::crayonCyan, 0.45f);
-    g.setColour(MiMOLookAndFeel::fountainInk);
-    g.setFont(juce::Font(8.0f, juce::Font::bold));
-    g.drawText("EXP", expBtn.toNearestInt(), juce::Justification::centred);
-
     // Manopole dei parametri
     const auto canvasKnobs = comp.collectCanvasKnobs();
     for (const auto& kh : canvasKnobs)

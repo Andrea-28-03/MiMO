@@ -31,7 +31,7 @@ juce::Rectangle<float> SidebarComponent::getSettingsButtonBounds(int compWidth, 
 
 juce::Rectangle<float> SidebarComponent::getSettingsPanelBounds(int compWidth, int /*compHeight*/)
 {
-    return { static_cast<float>(compWidth - 316), 54.0f, 300.0f, 236.0f };
+    return { static_cast<float>(compWidth - 316), 54.0f, 300.0f, 240.0f };
 }
 
 juce::Rectangle<float> SidebarComponent::getSettingsVolumeTrackBounds(int compWidth, int compHeight)
@@ -381,7 +381,7 @@ void SidebarComponent::paintRightSidebar(juce::Graphics& g, MainComponent& comp)
             MiMOLookAndFeel::drawSketchBox(g, camSetBtn, 318, MiMOLookAndFeel::crayonCyan, comp.cameraSettingsOpen ? 0.60f : 0.30f);
             g.setColour(MiMOLookAndFeel::fountainInk);
             g.setFont(juce::Font(8.5f, juce::Font::bold));
-            g.drawText(comp.cameraSettingsOpen ? "▲ Chiudi" : "▼ Opzioni", camSetBtn.toNearestInt(), juce::Justification::centred);
+            g.drawText(comp.cameraSettingsOpen ? "Chiudi" : "Opzioni", camSetBtn.toNearestInt(), juce::Justification::centred);
 
             if (comp.cameraSettingsOpen)
             {
@@ -632,11 +632,18 @@ void SidebarComponent::paintSettingsPanel(juce::Graphics& g, MainComponent& comp
     drawPresetBtn(getSettingsVol150BtnBounds(w, h), "Boost 150%", 872);
     drawPresetBtn(getSettingsVolUpBtnBounds(w, h), "+10%", 873);
 
-    // 5. Nota di sicurezza DSP
+    // 5. Pulsante Guida Scorciatoie da Tastiera
+    juce::Rectangle<float> shortcutsBtn(panel.getX() + 14.0f, panel.getY() + 164.0f, panel.getWidth() - 28.0f, 28.0f);
+    MiMOLookAndFeel::drawSketchBox(g, shortcutsBtn, 888, MiMOLookAndFeel::crayonCyan, 0.40f);
+    g.setColour(MiMOLookAndFeel::fountainInk);
+    g.setFont(juce::Font(11.0f, juce::Font::bold));
+    g.drawText("Guida Scorciatoie da Tastiera...", shortcutsBtn.toNearestInt(), juce::Justification::centred);
+
+    // 6. Nota di sicurezza DSP
     g.setColour(MiMOLookAndFeel::inkMuted);
-    g.setFont(juce::Font(9.5f, juce::Font::plain));
+    g.setFont(juce::Font(9.0f, juce::Font::plain));
     g.drawText("Limitatore analogico tanh attivo. Valori > 100% amplificano i suoni deboli.",
-               static_cast<int>(panel.getX() + 14), static_cast<int>(panel.getY() + 164), static_cast<int>(panel.getWidth() - 28), 16, juce::Justification::centred);
+               static_cast<int>(panel.getX() + 14), static_cast<int>(panel.getY() + 198), static_cast<int>(panel.getWidth() - 28), 16, juce::Justification::centred);
 }
 
 // =============================================================================
@@ -717,6 +724,16 @@ bool SidebarComponent::handleMouseDown(MainComponent& comp, const juce::Point<fl
                 comp.saveSettings();
                 return true;
             }
+
+            juce::Rectangle<float> shortcutsBtn(panel.getX() + 14.0f, panel.getY() + 164.0f, panel.getWidth() - 28.0f, 28.0f);
+            if (shortcutsBtn.contains(pt))
+            {
+                comp.settingsOpen = false;
+                comp.shortcutsModalOpen = true;
+                comp.repaint();
+                return true;
+            }
+
             return true;
         }
         else

@@ -9,18 +9,18 @@ void PresetCatalog::initCatalogs(std::vector<CatalogItem>& instrumentCatalog,
                                  std::vector<CatalogItem>& utilityCatalog)
 {
     instrumentCatalog = {
-        { "ins-drum-analog",   "Percussioni",       "Percussioni",          "Faust", "4 voci discrete con sound design granulare", MiMOLookAndFeel::crayonCherry, false, {} },
-        { "ins-theremin-3d",   "Sintesi Gestuale",  "Theremin 3D",          "Faust", "Controllo spaziale fluido",                  MiMOLookAndFeel::crayonCyan,   false, {} },
-        { "ins-karplus-pluck", "Corde & Lamelle",   "Kalimba & Pluck",      "Faust", "Waveguide fisico a corda",                   MiMOLookAndFeel::crayonMint,   false, {} },
-        { "ins-felt-piano",    "Tastiere & Feltro", "Piano Feltro",         "Faust", "Pianoforte intimo con feltro & decay naturale", MiMOLookAndFeel::crayonLilac, false, {} },
-        { "ins-synth-va",      "Sintesi VA",        "Virtual Analog Synth", "Faust", "PolyBLEP lead & sub-bass",                  MiMOLookAndFeel::crayonPeach,  false, {} }
+        { "ins-drum-analog",   "Percussion & Transients", "Dynamic Analog Drums",     "Faust", "4-Voice Discrete Analog Percussion with Transient Shaping", MiMOLookAndFeel::crayonCherry, false, {} },
+        { "ins-theremin-3d",   "Expressive Synthesis",    "Spatial Theremin 3D",     "Faust", "Continuous 3D Spatial Vector & Portamento Synth",          MiMOLookAndFeel::crayonCyan,   false, {} },
+        { "ins-karplus-pluck", "Physical Modeling",       "Waveguide Acoustic Pluck","Faust", "Karplus-Strong Resonator & Kalimba String Model",        MiMOLookAndFeel::crayonMint,   false, {} },
+        { "ins-felt-piano",    "Acoustic Keys",           "Warm Felt Piano",         "Faust", "Intimate Upright Piano with Natural Felt Damping",        MiMOLookAndFeel::crayonLilac, false, {} },
+        { "ins-synth-va",      "Subtractive VA",          "PolyBLEP Analog Synth",   "Faust", "Bandlimited Dual-Oscillator Lead & Sub-Bass Synth",        MiMOLookAndFeel::crayonPeach,  false, {} }
     };
 
     utilityCatalog = {
-        { "ut-scale-lock",    "Armonia & Scale",  "Smart Scale Lock",  "Faust", "Quantizzatore tonale anti-stonatura", MiMOLookAndFeel::crayonMint,   false, {} },
-        { "ut-looper-tape",   "Performance",      "Tape Looper",       "Faust", "1-Button Looper a nastro (Sound-on-Sound)", MiMOLookAndFeel::crayonCherry, false, {} },
-        { "mod-env-follower", "Modulazione",      "Envelope Follower", "Faust", "Seguitore dinamico inviluppo audio", MiMOLookAndFeel::crayonOchre,  false, {} },
-        { "mod-lfo-poly",     "Modulazione",      "LFO Multi-Onda",    "Faust", "Oscillatore CV continuo multi-forma", MiMOLookAndFeel::crayonPeach,  false, {} }
+        { "ut-scale-lock",    "Harmony & Pitch", "Smart Scale Lock",          "Faust", "Real-time Modal Pitch & Scale Quantizer",          MiMOLookAndFeel::crayonMint,   false, {} },
+        { "ut-looper-tape",   "Performance",     "Analog Tape Looper",        "Faust", "Sound-on-Sound Seamless Magnetic Loop Station",     MiMOLookAndFeel::crayonCherry, false, {} },
+        { "mod-env-follower", "Modulation & CV", "Dynamic Envelope Follower", "Faust", "Fast Transient Peak & RMS Audio-to-CV Tracker",   MiMOLookAndFeel::crayonOchre,  false, {} },
+        { "mod-lfo-poly",     "Modulation & CV", "Multi-Wave CV LFO",         "Faust", "Multi-waveform Continuous CV Oscillator & Clock",    MiMOLookAndFeel::crayonPeach,  false, {} }
     };
 
     effectCatalog.clear();
@@ -29,10 +29,10 @@ void PresetCatalog::initCatalogs(std::vector<CatalogItem>& instrumentCatalog,
     {
         CatalogItem filtro;
         filtro.id = "fx-filtro-svf";
-        filtro.category = "Filtri";
-        filtro.name = "Filtro ZDF SVF";
+        filtro.category = "Filters & EQ";
+        filtro.name = "ZDF State Variable Filter";
         filtro.engine = "Faust";
-        filtro.hint = "SVF risonante analogico";
+        filtro.hint = "12dB/oct Zero-Delay Feedback Resonant Filter";
         filtro.colour = MiMOLookAndFeel::crayonCyan;
         filtro.isEffect = true;
         filtro.templateBlocks = {
@@ -49,10 +49,10 @@ void PresetCatalog::initCatalogs(std::vector<CatalogItem>& instrumentCatalog,
     {
         CatalogItem sat;
         sat.id = "fx-saturazione-soft";
-        sat.category = "Colore";
-        sat.name = "Saturazione Pastello";
+        sat.category = "Dynamics & Drive";
+        sat.name = "Tape Saturator & Overdrive";
         sat.engine = "Faust";
-        sat.hint = "Overdrive a nastro morbido";
+        sat.hint = "Warm Triode Tube & Tape Saturation";
         sat.colour = MiMOLookAndFeel::crayonPeach;
         sat.isEffect = true;
         sat.templateBlocks = {
@@ -69,10 +69,10 @@ void PresetCatalog::initCatalogs(std::vector<CatalogItem>& instrumentCatalog,
     {
         CatalogItem delay;
         delay.id = "fx-eco-nastro";
-        delay.category = "Spazio";
-        delay.name = "Eco a Nastro Ping-Pong";
+        delay.category = "Time & Space";
+        delay.name = "Tape Echo & Ping-Pong Delay";
         delay.engine = "Faust";
-        delay.hint = "Delay analogico con smorzamento";
+        delay.hint = "Vintage Analogue Tape Delay with Flutter & Tone";
         delay.colour = MiMOLookAndFeel::crayonMint;
         delay.isEffect = true;
         delay.templateBlocks = {
@@ -89,10 +89,10 @@ void PresetCatalog::initCatalogs(std::vector<CatalogItem>& instrumentCatalog,
     {
         CatalogItem rev;
         rev.id = "fx-riverbero-fdn";
-        rev.category = "Spazio";
-        rev.name = "Riverbero Lush FDN";
+        rev.category = "Time & Space";
+        rev.name = "Lush FDN Reverb";
         rev.engine = "Faust";
-        rev.hint = "Ambiente diffuso denso";
+        rev.hint = "High-Density Feedback Delay Network Reverb";
         rev.colour = MiMOLookAndFeel::crayonLilac;
         rev.isEffect = true;
         rev.templateBlocks = {
@@ -109,10 +109,10 @@ void PresetCatalog::initCatalogs(std::vector<CatalogItem>& instrumentCatalog,
     {
         CatalogItem moog;
         moog.id = "fx-moog-ladder";
-        moog.category = "Filtri";
-        moog.name = "Moog Ladder 24dB";
+        moog.category = "Filters & EQ";
+        moog.name = "Transistor Ladder Filter 24dB";
         moog.engine = "Faust";
-        moog.hint = "Filtro analogico a scala con transistor drive";
+        moog.hint = "Vintage 4-Pole 24dB Moog Ladder with Transistor Drive";
         moog.colour = MiMOLookAndFeel::crayonOchre;
         moog.isEffect = true;
         moog.templateBlocks = {
@@ -130,10 +130,10 @@ void PresetCatalog::initCatalogs(std::vector<CatalogItem>& instrumentCatalog,
     {
         CatalogItem chorus;
         chorus.id = "fx-chorus-bbd";
-        chorus.category = "Modulazione";
-        chorus.name = "Chorus BBD Analogico";
+        chorus.category = "Modulation";
+        chorus.name = "BBD Stereo Ensemble Chorus";
         chorus.engine = "Faust";
-        chorus.hint = "Stereo ensemble a ritardo variabile vintage";
+        chorus.hint = "Bucket-Brigade Analog Chorus with Dual LFO";
         chorus.colour = MiMOLookAndFeel::crayonSage;
         chorus.isEffect = true;
         chorus.templateBlocks = {
@@ -397,7 +397,7 @@ void PresetCatalog::initDefaultLivePresets(std::vector<PolaroidItem>& photoAlbum
         p.rotationDeg = -0.8f;
         p.badges = {
             { "Piano Feltro (Faust)", MiMOLookAndFeel::crayonLilac },
-            { "Riverbero Carta", MiMOLookAndFeel::crayonCherry },
+            { "FDN Lush Reverb", MiMOLookAndFeel::crayonCherry },
             { "Dist -> Damp", MiMOLookAndFeel::crayonSage }
         };
         p.snapshot = { nodes, cables };
@@ -417,7 +417,7 @@ void PresetCatalog::initDefaultLivePresets(std::vector<PolaroidItem>& photoAlbum
         p.rotationDeg = 1.1f;
         p.badges = {
             { "Percussioni Lofi (Faust)", MiMOLookAndFeel::crayonPeach },
-            { "Filtro Naif SVF", MiMOLookAndFeel::crayonCyan }
+            { "ZDF Resonant Filter", MiMOLookAndFeel::crayonCyan }
         };
         p.snapshot = { nodes, cables };
         p.isValid = true;
