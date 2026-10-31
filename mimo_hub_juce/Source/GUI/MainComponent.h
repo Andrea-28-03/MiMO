@@ -110,9 +110,11 @@ private:
     bool integratedSectionOpen = true;
     bool instrumentsSectionOpen = true;
     bool effectsSectionOpen = false;
+    bool utilitiesSectionOpen = false;
     bool settingsOpen = false;
     std::vector<CatalogItem> instrumentCatalog;
     std::vector<CatalogItem> effectCatalog;
+    std::vector<CatalogItem> utilityCatalog;
 
     // Moduli Integrati (Hardware Reale del Laptop: Microfono & Webcam)
     float micSensitivity = 0.65f;
@@ -447,6 +449,8 @@ private:
     juce::Rectangle<float> getInstrumentsBodyBounds() const;
     juce::Rectangle<float> getEffectsHeaderBounds() const;
     juce::Rectangle<float> getEffectsBodyBounds() const;
+    juce::Rectangle<float> getUtilitiesHeaderBounds() const;
+    juce::Rectangle<float> getUtilitiesBodyBounds() const;
     juce::Rectangle<float> getSlotBounds(int slotIdx) const;
     juce::Rectangle<float> getDockTabBounds(int tabIdx) const;
     juce::Rectangle<float> getPolaroidCardBounds() const;

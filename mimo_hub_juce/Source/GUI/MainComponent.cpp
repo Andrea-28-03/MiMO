@@ -1658,13 +1658,16 @@ void MainComponent::initCatalogs()
 {
     instrumentCatalog = {
         { "ins-drum-analog",   "Percussioni",       "Percussioni",          "Faust", "4 voci discrete con sound design granulare", MiMOLookAndFeel::crayonCherry, false, {} },
-        { "ins-theremin-3d",   "Sintesi Gestuale",  "Theremin 3D",          "Faust", "Controllo spaziale fluido",  MiMOLookAndFeel::crayonCyan,   false, {} },
-        { "ins-karplus-pluck", "Corde & Lamelle",   "Kalimba & Pluck",      "Faust", "Waveguide fisico a corda",   MiMOLookAndFeel::crayonMint,   false, {} },
-        { "ins-synth-va",      "Sintesi VA",        "Virtual Analog Synth", "Faust", "PolyBLEP lead & sub-bass",  MiMOLookAndFeel::crayonPeach,  false, {} },
-        { "ins-kit-vintage",   "Percussioni",       "Kit Acustico Vintage", "sfizz", "24 layer multi-velocity",    MiMOLookAndFeel::crayonCherry, false, {} },
-        { "ins-felt-piano",    "Tastiere & SFZ",    "Piano Feltro",         "sfizz", "Pianobook - morbido",        MiMOLookAndFeel::crayonLilac,  false, {} },
-        { "ins-toy-drums",     "Percussioni",       "Tamburi Giocattolo",   "sfizz", "latta, legno e sonagli",     MiMOLookAndFeel::crayonPeach,  false, {} },
-        { "ins-music-box",     "Tastiere & SFZ",    "Carillon a Manovella", "sfizz", "lamelle metalliche",         MiMOLookAndFeel::crayonMint,   false, {} }
+        { "ins-theremin-3d",   "Sintesi Gestuale",  "Theremin 3D",          "Faust", "Controllo spaziale fluido",                  MiMOLookAndFeel::crayonCyan,   false, {} },
+        { "ins-karplus-pluck", "Corde & Lamelle",   "Kalimba & Pluck",      "Faust", "Waveguide fisico a corda",                   MiMOLookAndFeel::crayonMint,   false, {} },
+        { "ins-felt-piano",    "Tastiere & Feltro", "Piano Feltro",         "Faust", "Pianoforte intimo con feltro & decay naturale", MiMOLookAndFeel::crayonLilac, false, {} },
+        { "ins-synth-va",      "Sintesi VA",        "Virtual Analog Synth", "Faust", "PolyBLEP lead & sub-bass",                  MiMOLookAndFeel::crayonPeach,  false, {} }
+    };
+
+    utilityCatalog = {
+        { "ut-scale-lock",    "Armonia & Scale",  "Smart Scale Lock",  "Faust", "Quantizzatore tonale anti-stonatura", MiMOLookAndFeel::crayonMint,   false, {} },
+        { "ut-looper-tape",   "Performance",      "Tape Looper",       "Faust", "1-Button Looper a nastro (Sound-on-Sound)", MiMOLookAndFeel::crayonCherry, false, {} },
+        { "mod-env-follower", "Modulazione",      "Envelope Follower", "Faust", "Seguitore dinamico inviluppo audio", MiMOLookAndFeel::crayonOchre,  false, {} }
     };
 
     // Catalogo Effetti Standard V2 (Mix Dry/Wet e Volume su TUTTI gli effetti)
@@ -1991,7 +1994,7 @@ void MainComponent::initDefaultLivePresets()
         p.bpm = 112;
         p.rotationDeg = -1.2f;
         p.badges = {
-            { "Kit 808 Vintage (sfizz)", MiMOLookAndFeel::crayonCherry },
+            { "Percussioni 808 (Faust)", MiMOLookAndFeel::crayonCherry },
             { "Tape Delay (Faust)", MiMOLookAndFeel::crayonCyan },
             { "Vel -> Drive", MiMOLookAndFeel::crayonOchre }
         };
@@ -2020,18 +2023,18 @@ void MainComponent::initDefaultLivePresets()
         photoAlbum.push_back(p);
     }
 
-    // Preset 3: Piano Feltro Ambient (sfizz)
+    // Preset 3: Piano Feltro Ambient (Faust)
     {
         PolaroidItem p;
         p.id = "pol-piano-feltro";
         p.autoName = "Piano Feltro Ambient";
         p.title = "Piano Feltro Ambient";
         p.timestamp = "14:28";
-        p.engineType = "sfizz";
+        p.engineType = "faust";
         p.bpm = 84;
         p.rotationDeg = -0.8f;
         p.badges = {
-            { "Piano Feltro (sfizz)", MiMOLookAndFeel::crayonLilac },
+            { "Piano Feltro (Faust)", MiMOLookAndFeel::crayonLilac },
             { "Riverbero Carta", MiMOLookAndFeel::crayonCherry },
             { "Dist -> Damp", MiMOLookAndFeel::crayonSage }
         };
@@ -2040,18 +2043,18 @@ void MainComponent::initDefaultLivePresets()
         photoAlbum.push_back(p);
     }
 
-    // Preset 4: Tamburi Giocattolo & Fuzz (Hybrid)
+    // Preset 4: Percussioni Lofi & Fuzz (Faust)
     {
         PolaroidItem p;
         p.id = "pol-toy-drums";
-        p.autoName = "Tamburi Giocattolo & Fuzz";
-        p.title = "Tamburi Giocattolo & Fuzz";
+        p.autoName = "Percussioni Lofi & Fuzz";
+        p.title = "Percussioni Lofi & Fuzz";
         p.timestamp = "14:32";
-        p.engineType = "hybrid";
+        p.engineType = "faust";
         p.bpm = 126;
         p.rotationDeg = 1.1f;
         p.badges = {
-            { "Toy Drums (sfizz)", MiMOLookAndFeel::crayonPeach },
+            { "Percussioni Lofi (Faust)", MiMOLookAndFeel::crayonPeach },
             { "Filtro Naif SVF", MiMOLookAndFeel::crayonCyan }
         };
         p.snapshot = { nodes, cables };
@@ -2724,6 +2727,27 @@ juce::Rectangle<float> MainComponent::getEffectsBodyBounds() const
     const auto header = getEffectsHeaderBounds();
     const float count = static_cast<float>(effectCatalog.size());
     const float h = count * 42.0f + 8.0f;
+    return { header.getX(), header.getBottom() + 4.0f, header.getWidth(), h };
+}
+
+juce::Rectangle<float> MainComponent::getUtilitiesHeaderBounds() const
+{
+    const auto fxH = getEffectsHeaderBounds();
+    float y = fxH.getBottom();
+    if (effectsSectionOpen)
+    {
+        const auto fxB = getEffectsBodyBounds();
+        y = fxB.getBottom();
+    }
+    y += 10.0f;
+    return { fxH.getX(), y, 284.0f, 32.0f };
+}
+
+juce::Rectangle<float> MainComponent::getUtilitiesBodyBounds() const
+{
+    const auto header = getUtilitiesHeaderBounds();
+    const float count = static_cast<float>(utilityCatalog.size());
+    const float h = count * 40.0f + 8.0f;
     return { header.getX(), header.getBottom() + 4.0f, header.getWidth(), h };
 }
 
@@ -4663,7 +4687,7 @@ void MainComponent::paintRightSidebar(juce::Graphics& g)
                                    instrumentsSectionOpen ? 0.50f : 0.25f);
     g.setColour(MiMOLookAndFeel::fountainInk);
     g.setFont(juce::Font(13.0f, juce::Font::bold));
-    g.drawText("1. STRUMENTI (6)", static_cast<int>(instHeader.getX() + 14), static_cast<int>(instHeader.getY()),
+    g.drawText("1. STRUMENTI (" + juce::String(instrumentCatalog.size()) + ")", static_cast<int>(instHeader.getX() + 14), static_cast<int>(instHeader.getY()),
                200, static_cast<int>(instHeader.getHeight()), juce::Justification::centredLeft);
 
     // Freccia giu (se aperto) o a destra (se chiuso)
@@ -4724,7 +4748,7 @@ void MainComponent::paintRightSidebar(juce::Graphics& g)
                                    effectsSectionOpen ? 0.50f : 0.25f);
     g.setColour(MiMOLookAndFeel::fountainInk);
     g.setFont(juce::Font(13.0f, juce::Font::bold));
-    g.drawText("2. EFFETTI NESTED (4)", static_cast<int>(fxHeader.getX() + 10), static_cast<int>(fxHeader.getY()),
+    g.drawText("2. EFFETTI NESTED (" + juce::String(effectCatalog.size()) + ")", static_cast<int>(fxHeader.getX() + 10), static_cast<int>(fxHeader.getY()),
                200, static_cast<int>(fxHeader.getHeight()), juce::Justification::centredLeft);
 
     // Freccia giu (se aperto) o a destra (se chiuso)
@@ -4773,6 +4797,68 @@ void MainComponent::paintRightSidebar(juce::Graphics& g)
             g.setColour(MiMOLookAndFeel::fountainInk);
             g.setFont(juce::Font(10.5f, juce::Font::bold));
             g.drawText("+ Cavo", static_cast<int>(row.getRight() - 56), static_cast<int>(y + 9), 48, 18, juce::Justification::centredRight);
+        }
+    }
+
+    // =========================================================================
+    // 4. ZONA UTILITY & CONTROLLO
+    // =========================================================================
+    const auto utHeader = getUtilitiesHeaderBounds();
+    MiMOLookAndFeel::drawSketchBox(g, utHeader, 340,
+                                   utilitiesSectionOpen ? MiMOLookAndFeel::crayonMint : MiMOLookAndFeel::paperCard,
+                                   utilitiesSectionOpen ? 0.50f : 0.25f);
+    g.setColour(MiMOLookAndFeel::fountainInk);
+    g.setFont(juce::Font(13.0f, juce::Font::bold));
+    g.drawText("3. UTILITY & CONTROLLO (" + juce::String(utilityCatalog.size()) + ")",
+               static_cast<int>(utHeader.getX() + 10), static_cast<int>(utHeader.getY()),
+               220, static_cast<int>(utHeader.getHeight()), juce::Justification::centredLeft);
+
+    // Freccia giu (se aperto) o a destra (se chiuso)
+    {
+        const float ax = utHeader.getRight() - 20.0f;
+        const float ay = utHeader.getCentreY();
+        juce::Path arrow;
+        if (utilitiesSectionOpen)
+        {
+            arrow.addTriangle(ax - 5.0f, ay - 3.0f,
+                              ax + 5.0f, ay - 3.0f,
+                              ax,        ay + 4.0f);
+        }
+        else
+        {
+            arrow.addTriangle(ax - 3.0f, ay - 5.0f,
+                              ax - 3.0f, ay + 5.0f,
+                              ax + 4.0f, ay);
+        }
+        g.setColour(MiMOLookAndFeel::fountainInk);
+        g.fillPath(arrow);
+    }
+
+    if (utilitiesSectionOpen)
+    {
+        const auto utBody = getUtilitiesBodyBounds();
+        MiMOLookAndFeel::drawSketchBox(g, utBody, 342, juce::Colours::transparentBlack, 0.0f, juce::Colours::transparentBlack, 1.8f);
+
+        const float x = utBody.getX() + 8.0f;
+        const float w = utBody.getWidth() - 16.0f;
+        for (size_t i = 0; i < utilityCatalog.size(); ++i)
+        {
+            const auto& ut = utilityCatalog[i];
+            const float y = utBody.getY() + 6.0f + static_cast<float>(i) * 40.0f;
+            juce::Rectangle<float> row(x, y, w, 35.0f);
+            MiMOLookAndFeel::drawSketchBox(g, row, 600 + static_cast<int>(i), ut.colour, 0.48f, juce::Colours::transparentBlack, 1.4f);
+
+            g.setColour(MiMOLookAndFeel::fountainInk);
+            g.setFont(juce::Font(12.5f, juce::Font::bold));
+            g.drawText(ut.name, static_cast<int>(x + 10), static_cast<int>(y + 3), static_cast<int>(w - 65), 16, juce::Justification::centredLeft);
+
+            g.setColour(MiMOLookAndFeel::inkMuted);
+            g.setFont(juce::Font(10.0f, juce::Font::plain));
+            g.drawText(ut.category + " - " + ut.hint, static_cast<int>(x + 10), static_cast<int>(y + 18), static_cast<int>(w - 65), 14, juce::Justification::centredLeft);
+
+            g.setColour(MiMOLookAndFeel::fountainInk);
+            g.setFont(juce::Font(10.5f, juce::Font::bold));
+            g.drawText("[" + ut.engine + "]", static_cast<int>(row.getRight() - 56), static_cast<int>(y + 8), 48, 18, juce::Justification::centredRight);
         }
     }
 
@@ -6275,6 +6361,32 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 if (row.contains(pt))
                 {
                     draggedCatalogItem = effectCatalog[i];
+                    dragMode = DragMode::DragSidebarItem;
+                    return;
+                }
+            }
+            return;
+        }
+
+        // 6d. Zona Utility & Controllo
+        if (getUtilitiesHeaderBounds().contains(pt))
+        {
+            utilitiesSectionOpen = !utilitiesSectionOpen;
+            repaint();
+            return;
+        }
+
+        if (utilitiesSectionOpen && getUtilitiesBodyBounds().contains(pt))
+        {
+            const auto utBody = getUtilitiesBodyBounds();
+            const float x = utBody.getX() + 8.0f;
+            const float w = utBody.getWidth() - 16.0f;
+            for (size_t i = 0; i < utilityCatalog.size(); ++i)
+            {
+                juce::Rectangle<float> row(x, utBody.getY() + 6.0f + static_cast<float>(i) * 40.0f, w, 35.0f);
+                if (row.contains(pt))
+                {
+                    draggedCatalogItem = utilityCatalog[i];
                     dragMode = DragMode::DragSidebarItem;
                     return;
                 }

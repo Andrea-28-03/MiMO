@@ -353,40 +353,84 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
         else if (node.type == NodeType::InstrumentNode)
         {
             const bool isPerc = (node.id.containsIgnoreCase("drum") || node.id.containsIgnoreCase("percuss") || node.id.containsIgnoreCase("kit"));
-            // Presa Audio In (Cerchio)
-            pins.push_back({ node.id, "audio:in", false, false, MiMOLookAndFeel::fountainInk,
-                             { node.pos.x, node.pos.y + 28.0f }, { -1.0f, 0.0f },
-                             MiMOLookAndFeel::PinShapeType::AudioCircle });
+            const bool isScale = (node.id.containsIgnoreCase("scale") || node.id.containsIgnoreCase("quantiz"));
+            const bool isFollower = (node.id.containsIgnoreCase("follower") || node.id.containsIgnoreCase("env"));
+            const bool isLooper = (node.id.containsIgnoreCase("looper") || node.id.containsIgnoreCase("tape_loop"));
 
-            if (isPerc)
+            if (isScale)
             {
-                pins.push_back({ node.id, "trigger:kick", false, false, MiMOLookAndFeel::crayonCherry,
-                                 { node.pos.x, node.pos.y + 50.0f }, { -1.0f, 0.0f },
-                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                pins.push_back({ node.id, "trigger:snare", false, false, MiMOLookAndFeel::crayonPeach,
-                                 { node.pos.x, node.pos.y + 72.0f }, { -1.0f, 0.0f },
-                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                pins.push_back({ node.id, "trigger:hat", false, false, MiMOLookAndFeel::crayonCyan,
-                                 { node.pos.x, node.pos.y + 94.0f }, { -1.0f, 0.0f },
-                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                pins.push_back({ node.id, "trigger:tom", false, false, MiMOLookAndFeel::crayonMint,
-                                 { node.pos.x, node.pos.y + 116.0f }, { -1.0f, 0.0f },
-                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
-                                 { node.pos.x, node.pos.y + 138.0f }, { -1.0f, 0.0f },
-                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                // Modulazione In (CV da mano / LFO) -> Triangolo
+                pins.push_back({ node.id, "mod:in", false, true, MiMOLookAndFeel::crayonMint,
+                                 { node.pos.x, node.pos.y + 36.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::ModulationTri });
+                // Modulazione Out (CV quantizzato per intonazione) -> Triangolo
+                pins.push_back({ node.id, "mod:out", true, true, MiMOLookAndFeel::crayonMint,
+                                 { node.pos.x + node.size.x, node.pos.y + 36.0f }, { 1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::ModulationTri });
             }
-            else
+            else if (isFollower)
             {
+                // Audio In -> Cerchio
+                pins.push_back({ node.id, "audio:in", false, false, MiMOLookAndFeel::fountainInk,
+                                 { node.pos.x, node.pos.y + 28.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
+                // Modulazione Out (Inviluppo CV dinamico) -> Triangolo
+                pins.push_back({ node.id, "mod:out", true, true, MiMOLookAndFeel::crayonOchre,
+                                 { node.pos.x + node.size.x, node.pos.y + 36.0f }, { 1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::ModulationTri });
+            }
+            else if (isLooper)
+            {
+                // Audio In -> Cerchio
+                pins.push_back({ node.id, "audio:in", false, false, MiMOLookAndFeel::fountainInk,
+                                 { node.pos.x, node.pos.y + 28.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
+                // Trigger In (Rec / Play / Overdub) -> Rombo
                 pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
                                  { node.pos.x, node.pos.y + 58.0f }, { -1.0f, 0.0f },
                                  MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                // Audio Out -> Cerchio
+                pins.push_back({ node.id, "audio:out", true, false, MiMOLookAndFeel::fountainInk,
+                                 { node.pos.x + node.size.x, node.pos.y + 28.0f }, { 1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
             }
+            else
+            {
+                // Presa Audio In (Cerchio)
+                pins.push_back({ node.id, "audio:in", false, false, MiMOLookAndFeel::fountainInk,
+                                 { node.pos.x, node.pos.y + 28.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
 
-            // Presa Audio Out (Cerchio)
-            pins.push_back({ node.id, "audio:out", true, false, MiMOLookAndFeel::fountainInk,
-                             { node.pos.x + node.size.x, node.pos.y + 28.0f }, { 1.0f, 0.0f },
-                             MiMOLookAndFeel::PinShapeType::AudioCircle });
+                if (isPerc)
+                {
+                    pins.push_back({ node.id, "trigger:kick", false, false, MiMOLookAndFeel::crayonCherry,
+                                     { node.pos.x, node.pos.y + 50.0f }, { -1.0f, 0.0f },
+                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                    pins.push_back({ node.id, "trigger:snare", false, false, MiMOLookAndFeel::crayonPeach,
+                                     { node.pos.x, node.pos.y + 72.0f }, { -1.0f, 0.0f },
+                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                    pins.push_back({ node.id, "trigger:hat", false, false, MiMOLookAndFeel::crayonCyan,
+                                     { node.pos.x, node.pos.y + 94.0f }, { -1.0f, 0.0f },
+                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                    pins.push_back({ node.id, "trigger:tom", false, false, MiMOLookAndFeel::crayonMint,
+                                     { node.pos.x, node.pos.y + 116.0f }, { -1.0f, 0.0f },
+                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                    pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
+                                     { node.pos.x, node.pos.y + 138.0f }, { -1.0f, 0.0f },
+                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                }
+                else
+                {
+                    pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
+                                     { node.pos.x, node.pos.y + 58.0f }, { -1.0f, 0.0f },
+                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                }
+
+                // Presa Audio Out (Cerchio)
+                pins.push_back({ node.id, "audio:out", true, false, MiMOLookAndFeel::fountainInk,
+                                 { node.pos.x + node.size.x, node.pos.y + 28.0f }, { 1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
+            }
         }
         else if (node.type == NodeType::MasterOut)
         {
@@ -557,6 +601,29 @@ CanvasNode CanvasGraphHelper::createInstrumentNodeFromCatalog(const CatalogItem&
             { "vol",    "Volume",     0.0f, 1.5f, 1.0f, 1.0f, "",     true },
             { "decay",  "Damping",    0.1f, 4.0f, 1.5f, 1.5f, " s",   true },
             { "cutoff", "Brilliance", 200.0f, 12000.0f, 4500.0f, 4500.0f, " Hz", true }
+        };
+    }
+    else if (item.id.containsIgnoreCase("scale") || item.id.containsIgnoreCase("quantiz"))
+    {
+        node.directParams = {
+            { "scale",   "Scala",   0.0f, 6.0f, 0.0f, 0.0f, "",   true },
+            { "root",    "Tonica",  0.0f, 11.0f, 0.0f, 0.0f, "",  true },
+            { "octaves", "Ottave",  1.0f, 4.0f, 2.0f, 2.0f, "",   true }
+        };
+    }
+    else if (item.id.containsIgnoreCase("looper") || item.id.containsIgnoreCase("tape_loop"))
+    {
+        node.directParams = {
+            { "vol",      "Volume",  0.0f, 1.5f, 1.0f, 1.0f, "",   true },
+            { "feedback", "Overdub", 0.0f, 1.0f, 0.85f, 0.85f, " %", true }
+        };
+    }
+    else if (item.id.containsIgnoreCase("follower") || item.id.containsIgnoreCase("env"))
+    {
+        node.directParams = {
+            { "attack",  "Attacco",  1.0f, 100.0f, 10.0f, 10.0f, " ms", true },
+            { "release", "Rilascio", 10.0f, 800.0f, 120.0f, 120.0f, " ms", true },
+            { "gain",    "Sensib.",  0.2f, 5.0f, 1.0f, 1.0f, " x", true }
         };
     }
     else // Synth VA
