@@ -97,16 +97,9 @@ MainComponent::MainComponent()
         // Triggera direttamente via AudioEngine da "hw-eye" (Fan-in su tutti i nodi collegati)
         audioEngine.triggerFromSource("hw-eye", fingerIdx, vel, isSecondary);
         lastTriggerSourceCode.store(3);
+        lastTriggerFingerIdx.store(fingerIdx);
+        lastTriggerIsSecondary.store(isSecondary);
         triggerPulseAlpha.store(1.0f);
-
-        // Mano Primaria (DX): 0=Kick, 1=Snare, 2=Hi-Hat, 3=Percussione
-        // Mano Secondaria (SX): 2=Piano Feltro, 3=Synth/Carillon
-        int inst = fingerIdx;
-        if (isSecondary)
-            inst = (fingerIdx % 2 == 0) ? 2 : 3;
-        synthInstrumentType.store(inst);
-        synthHitVelocity.store(vel);
-        synthTriggerPending.store(true);
     };
     eyeServer->onSmartphoneFrame = [this](const juce::Image& phoneImg)
     {
@@ -571,9 +564,9 @@ mimo::HandTrackingState MainComponent::analyzeHandFrame(const juce::Image& frame
                 {
                     audioEngine.triggerFromSource("hw-eye", static_cast<int>(p), st.pinchVelocity[p], false);
                     lastTriggerSourceCode.store(3);
+                    lastTriggerFingerIdx.store(static_cast<int>(p));
+                    lastTriggerIsSecondary.store(false);
                     triggerPulseAlpha.store(1.0f);
-                    synthHitVelocity.store(st.pinchVelocity[p]);
-                    synthTriggerPending.store(true);
                 }
             }
         }
@@ -1471,25 +1464,8 @@ void MainComponent::timerCallback()
         auto pinchTrigs = eyeServer->consumePinchTriggers();
         if (eyeGesturePinchTrig && eyePhalanxDetail >= 1)
         {
-            for (const auto& ev : pinchTrigs)
-            {
-                if (!isHandTriggersEnabled(ev.isSecondary))
-                    continue;
-
-                audioEngine.triggerFromSource("hw-eye", ev.fingerIndex, ev.velocity, ev.isSecondary);
-                lastTriggerSourceCode.store(3);
-                triggerPulseAlpha.store(1.0f);
-
-                // Mano Primaria (DX): 0=Kick, 1=Snare, 2=Hi-Hat, 3=Percussione
-                // Mano Secondaria (SX): 2=Piano Feltro, 3=Synth/Carillon
-                int inst = ev.fingerIndex;
-                if (ev.isSecondary)
-                    inst = (ev.fingerIndex % 2 == 0) ? 2 : 3;
-                synthInstrumentType.store(inst);
-                synthHitVelocity.store(ev.velocity);
-                synthTriggerPending.store(true);
+            if (!pinchTrigs.empty())
                 needsRepaint = true;
-            }
         }
 
         if ((latestEyeState.hasHand && isCameraInCanvas()) || (eyeDrawerOpen && frameCounter % 10 == 0))
@@ -2489,6 +2465,29 @@ juce::Rectangle<float> MainComponent::getSettingsVolUpBtnBounds() const
     return { p.getX() + 232.0f, p.getY() + 130.0f, 54.0f, 26.0f };
 }
 
+juce::String MainComponent::getSoundNameForId(int soundId)
+{
+    switch (soundId)
+    {
+        case 0: return "Cassa";
+        case 1: return "Rullante";
+        case 2: return "Charleston";
+        case 3: return "Percussione";
+        case 4: return "Piano Do3";
+        case 5: return "Piano Re3";
+        case 6: return "Piano Mi3";
+        case 7: return "Piano Sol3";
+        case 8: return "Piano La3";
+        case 9: return "Piano Do4";
+        case 10: return "Synth Lead";
+        case 11: return "Pad Gessetto";
+        case 12: return "808 Sub";
+        case 13: return "Latta Giocattolo";
+        case 14: return "Carillon";
+        default: return "Voce " + juce::String(soundId);
+    }
+}
+
 void MainComponent::setAppMasterVolume(float newVolume)
 {
     const float clamped = juce::jlimit(0.0f, 2.0f, newVolume);
@@ -2987,7 +2986,31 @@ void MainComponent::paintStudioCanvas(juce::Graphics& g)
             else if (trigSrc == 3) // hw-eye
             {
                 if (c.sourceNodeId == "hw-eye" || c.sourceNodeId == "hw-webcam" || (c.sourceNodeId == "rockpi" && c.sourcePinId == "audio:p2"))
-                    cableMatches = true;
+                {
+                    const int fIdx = lastTriggerFingerIdx.load();
+                    const bool isSec = lastTriggerIsSecondary.load();
+                    if (fIdx >= 0)
+                    {
+                        if (!isSec)
+                        {
+                            if (fIdx == 0 && (c.sourcePinId == "trigger:dx_pinch_idx" || c.sourcePinId == "trigger:out")) cableMatches = true;
+                            else if (fIdx == 1 && c.sourcePinId == "trigger:dx_pinch_mid") cableMatches = true;
+                            else if (fIdx == 2 && c.sourcePinId == "trigger:dx_pinch_rng") cableMatches = true;
+                            else if (fIdx == 3 && c.sourcePinId == "trigger:dx_pinch_pky") cableMatches = true;
+                        }
+                        else
+                        {
+                            if (fIdx == 0 && (c.sourcePinId == "trigger:sx_pinch_idx" || c.sourcePinId == "trigger:out")) cableMatches = true;
+                            else if (fIdx == 1 && c.sourcePinId == "trigger:sx_pinch_mid") cableMatches = true;
+                            else if (fIdx == 2 && c.sourcePinId == "trigger:sx_pinch_rng") cableMatches = true;
+                            else if (fIdx == 3 && c.sourcePinId == "trigger:sx_pinch_pky") cableMatches = true;
+                        }
+                    }
+                    else
+                    {
+                        cableMatches = true;
+                    }
+                }
             }
             else if (trigSrc == 4) // instrument
             {
@@ -3051,7 +3074,32 @@ void MainComponent::paintStudioCanvas(juce::Graphics& g)
         {
             if (trigSrc == 1 && pin.nodeId == "hw-drum") pinMatches = true;
             else if (trigSrc == 2 && (pin.nodeId == "hw-mic")) pinMatches = true;
-            else if (trigSrc == 3 && (pin.nodeId == "hw-eye" || pin.nodeId == "hw-webcam")) pinMatches = true;
+            else if (trigSrc == 3 && (pin.nodeId == "hw-eye" || pin.nodeId == "hw-webcam"))
+            {
+                const int fIdx = lastTriggerFingerIdx.load();
+                const bool isSec = lastTriggerIsSecondary.load();
+                if (fIdx >= 0)
+                {
+                    if (!isSec)
+                    {
+                        if (fIdx == 0 && pin.pinId == "trigger:dx_pinch_idx") pinMatches = true;
+                        else if (fIdx == 1 && pin.pinId == "trigger:dx_pinch_mid") pinMatches = true;
+                        else if (fIdx == 2 && pin.pinId == "trigger:dx_pinch_rng") pinMatches = true;
+                        else if (fIdx == 3 && pin.pinId == "trigger:dx_pinch_pky") pinMatches = true;
+                    }
+                    else
+                    {
+                        if (fIdx == 0 && pin.pinId == "trigger:sx_pinch_idx") pinMatches = true;
+                        else if (fIdx == 1 && pin.pinId == "trigger:sx_pinch_mid") pinMatches = true;
+                        else if (fIdx == 2 && pin.pinId == "trigger:sx_pinch_rng") pinMatches = true;
+                        else if (fIdx == 3 && pin.pinId == "trigger:sx_pinch_pky") pinMatches = true;
+                    }
+                }
+                else
+                {
+                    pinMatches = true;
+                }
+            }
         }
         const bool isFiring = (pinIsTrig && pinMatches && isPulse);
 
@@ -3522,15 +3570,69 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
 
                                         g.setFont(juce::Font(9.5f, juce::Font::bold));
                                         g.setColour(itemActive ? MiMOLookAndFeel::fountainInk : MiMOLookAndFeel::inkMuted);
-                                        g.drawText(item.label, static_cast<int>(row.getX() + 6), static_cast<int>(row.getY()), 100, static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
+                                        g.drawText(item.label, static_cast<int>(row.getX() + 6), static_cast<int>(row.getY()), 68, static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
 
                                         if (item.isTrigger)
                                         {
-                                            juce::Rectangle<float> testBtn(row.getRight() - 48.0f, row.getY() + 2.5f, 34.0f, 19.0f);
+                                            const bool isSec = (sub.parentGroup == "eye_sx" || sub.id.contains("sx"));
+                                            int fSub = 0;
+                                            if (item.pinId.endsWith("_mid")) fSub = 1;
+                                            else if (item.pinId.endsWith("_rng")) fSub = 2;
+                                            else if (item.pinId.endsWith("_pky")) fSub = 3;
+                                            const int gIdx = isSec ? (fSub + 4) : fSub;
+
+                                            // Controlla se questo pin ha un cavo collegato a uno strumento del canvas
+                                            juce::String connectedInstName;
+                                            for (const auto& c : cables)
+                                            {
+                                                if (c.sourceNodeId == node.id && c.sourcePinId == item.pinId)
+                                                {
+                                                    for (const auto& otherNode : nodes)
+                                                    {
+                                                        if (otherNode.id == c.targetNodeId)
+                                                        {
+                                                            connectedInstName = otherNode.label;
+                                                            break;
+                                                        }
+                                                    }
+                                                    break;
+                                                }
+                                            }
+
+                                            // Tasto TEST
+                                            juce::Rectangle<float> testBtn(row.getRight() - 40.0f, row.getY() + 2.5f, 32.0f, 19.0f);
                                             MiMOLookAndFeel::drawSketchBox(g, testBtn, seed + 105, itemActive ? MiMOLookAndFeel::crayonOchre : juce::Colour(0xFF3B404D), itemActive ? 0.40f : 0.15f);
                                             g.setColour(itemActive ? MiMOLookAndFeel::fountainInk : MiMOLookAndFeel::inkMuted);
-                                            g.setFont(juce::Font(8.0f, juce::Font::bold));
+                                            g.setFont(juce::Font(7.5f, juce::Font::bold));
                                             g.drawText(itemActive ? "TEST" : "MUTE", testBtn.toNearestInt(), juce::Justification::centred);
+
+                                            // Selettore Strumento / Suono (Pillola cliccabile)
+                                            const float soundBtnX = row.getX() + 76.0f;
+                                            const float soundBtnW = testBtn.getX() - soundBtnX - 4.0f;
+                                            juce::Rectangle<float> soundBtn(soundBtnX, row.getY() + 2.5f, soundBtnW, 19.0f);
+
+                                            if (connectedInstName.isNotEmpty())
+                                            {
+                                                g.setColour(juce::Colour(0xFF1E2822));
+                                                g.fillRoundedRectangle(soundBtn, 3.0f);
+                                                g.setColour(MiMOLookAndFeel::crayonOchre.withAlpha(0.85f));
+                                                g.drawRoundedRectangle(soundBtn, 3.0f, 0.8f);
+                                                g.setColour(MiMOLookAndFeel::crayonOchre);
+                                                g.setFont(juce::Font(8.0f, juce::Font::bold));
+                                                g.drawText(juce::String(juce::CharPointer_UTF8("\xe2\x9e\x94 ")) + connectedInstName, soundBtn.toNearestInt(), juce::Justification::centred);
+                                            }
+                                            else
+                                            {
+                                                const int sndId = audioEngine.getEyeFingerSound(gIdx);
+                                                const juce::String sndName = getSoundNameForId(sndId);
+                                                g.setColour(juce::Colour(0xFF222630));
+                                                g.fillRoundedRectangle(soundBtn, 3.0f);
+                                                g.setColour(juce::Colours::white.withAlpha(0.18f));
+                                                g.drawRoundedRectangle(soundBtn, 3.0f, 0.8f);
+                                                g.setColour(MiMOLookAndFeel::fountainInk);
+                                                g.setFont(juce::Font(8.0f, juce::Font::bold));
+                                                g.drawText(sndName + juce::String(juce::CharPointer_UTF8(" \xe2\x96\xbe")), soundBtn.toNearestInt(), juce::Justification::centred);
+                                            }
                                         }
                                         else
                                         {
@@ -6519,19 +6621,144 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                                         if (item.isTrigger)
                                         {
                                             juce::Rectangle<float> row(box.getX() + 18.0f, curY, box.getWidth() - 36.0f, 24.0f);
-                                            juce::Rectangle<float> testBtn(row.getRight() - 48.0f, row.getY() + 2.5f, 34.0f, 19.0f);
+                                            juce::Rectangle<float> testBtn(row.getRight() - 40.0f, row.getY() + 2.5f, 32.0f, 19.0f);
+                                            const float soundBtnX = row.getX() + 76.0f;
+                                            const float soundBtnW = testBtn.getX() - soundBtnX - 4.0f;
+                                            juce::Rectangle<float> soundBtn(soundBtnX, row.getY() + 2.5f, soundBtnW, 19.0f);
+
+                                            const bool isSec = (sub.parentGroup == "eye_sx" || sub.id.contains("sx") || grp.id == "eye_sx");
+                                            int subVoice = 0;
+                                            if (item.pinId.endsWith("_mid")) subVoice = 1;
+                                            else if (item.pinId.endsWith("_rng")) subVoice = 2;
+                                            else if (item.pinId.endsWith("_pky")) subVoice = 3;
+                                            const int globalFingerIdx = isSec ? (subVoice + 4) : subVoice;
+
+                                            if (soundBtn.contains(worldPt))
+                                            {
+                                                if (!sub.isEnabled || !grp.isEnabled)
+                                                    return;
+
+                                                juce::PopupMenu m;
+                                                m.addSectionHeader("SUONO / STRUMENTO: " + item.label + (isSec ? " (SX)" : " (DX)"));
+
+                                                const int currentSndId = audioEngine.getEyeFingerSound(globalFingerIdx);
+
+                                                juce::PopupMenu subDrums;
+                                                subDrums.addItem(1, "Cassa (Kick)", true, currentSndId == 0);
+                                                subDrums.addItem(2, "Rullante (Snare)", true, currentSndId == 1);
+                                                subDrums.addItem(3, "Charleston (Hi-Hat)", true, currentSndId == 2);
+                                                subDrums.addItem(4, "Percussione / Tom", true, currentSndId == 3);
+                                                subDrums.addItem(14, "Latta Giocattolo", true, currentSndId == 13);
+                                                m.addSubMenu("Batteria & Percussioni", subDrums);
+
+                                                juce::PopupMenu subMelodic;
+                                                subMelodic.addItem(5, "Piano Feltro (Do3)", true, currentSndId == 4);
+                                                subMelodic.addItem(6, "Piano Feltro (Re3)", true, currentSndId == 5);
+                                                subMelodic.addItem(7, "Piano Feltro (Mi3)", true, currentSndId == 6);
+                                                subMelodic.addItem(8, "Piano Feltro (Sol3)", true, currentSndId == 7);
+                                                subMelodic.addItem(9, "Piano Feltro (La3)", true, currentSndId == 8);
+                                                subMelodic.addItem(10, "Piano Feltro (Do4)", true, currentSndId == 9);
+                                                subMelodic.addItem(15, "Carillon a Manovella", true, currentSndId == 14);
+                                                m.addSubMenu("Piano & Melodici SFZ", subMelodic);
+
+                                                juce::PopupMenu subSynth;
+                                                subSynth.addItem(11, "Synth Lead (Do4)", true, currentSndId == 10);
+                                                subSynth.addItem(12, "Pad Gessetto (Mi4)", true, currentSndId == 11);
+                                                subSynth.addItem(13, "808 Sub Bass", true, currentSndId == 12);
+                                                m.addSubMenu("Sintesi Faust 3D & Bassi", subSynth);
+
+                                                std::vector<int> canvasInstIndices;
+                                                for (size_t ci = 0; ci < nodes.size(); ++ci)
+                                                    if (nodes[ci].type == NodeType::InstrumentNode || nodes[ci].hasInstrument)
+                                                        canvasInstIndices.push_back(static_cast<int>(ci));
+
+                                                if (!canvasInstIndices.empty())
+                                                {
+                                                    m.addSeparator();
+                                                    juce::PopupMenu subCanvas;
+                                                    for (size_t k = 0; k < canvasInstIndices.size(); ++k)
+                                                    {
+                                                        const auto& cNode = nodes[static_cast<size_t>(canvasInstIndices[k])];
+                                                        subCanvas.addItem(100 + static_cast<int>(k), "Collega a " + cNode.label);
+                                                    }
+                                                    m.addSubMenu("Collega a Strumento Canvas", subCanvas);
+                                                }
+
+                                                bool hasCable = false;
+                                                for (const auto& c : cables)
+                                                {
+                                                    if (c.sourceNodeId == n.id && c.sourcePinId == item.pinId)
+                                                    {
+                                                        hasCable = true;
+                                                        break;
+                                                    }
+                                                }
+                                                if (hasCable)
+                                                {
+                                                    m.addSeparator();
+                                                    m.addItem(999, "Scollega Cavo da Strumento Canvas");
+                                                }
+
+                                                m.showMenuAsync(juce::PopupMenu::Options(),
+                                                    [this, nodeId = n.id, pinId = item.pinId, globalFingerIdx, subVoice, isSec, canvasInstIndices](int res)
+                                                    {
+                                                        if (res <= 0) return;
+                                                        if (res >= 1 && res <= 20)
+                                                        {
+                                                            const int chosenSoundId = (res == 14 ? 13 : (res == 15 ? 14 : (res - 1)));
+                                                            audioEngine.setEyeFingerSound(globalFingerIdx, chosenSoundId);
+                                                            audioEngine.triggerSoundById(chosenSoundId, 1.0f);
+                                                            lastTriggerSourceCode.store(3);
+                                                            lastTriggerFingerIdx.store(subVoice);
+                                                            lastTriggerIsSecondary.store(isSec);
+                                                            triggerPulseAlpha.store(1.0f);
+                                                        }
+                                                        else if (res >= 100 && res < 999)
+                                                        {
+                                                            const size_t k = static_cast<size_t>(res - 100);
+                                                            if (k < canvasInstIndices.size())
+                                                            {
+                                                                const auto& targetNode = nodes[static_cast<size_t>(canvasInstIndices[k])];
+                                                                cables.erase(std::remove_if(cables.begin(), cables.end(),
+                                                                    [&](const CanvasCable& cc) {
+                                                                        return (cc.sourceNodeId == nodeId && cc.sourcePinId == pinId);
+                                                                    }), cables.end());
+                                                                cables.push_back({
+                                                                    "c-" + juce::String(juce::Time::getMillisecondCounter()) + "-" + juce::String(rand() % 1000),
+                                                                    nodeId, pinId,
+                                                                    targetNode.id, "trigger:in",
+                                                                    false, juce::Colour(0xFFFF7A18), {}
+                                                                });
+                                                                syncAudioRoutes();
+                                                                audioEngine.triggerFromSource(nodeId, subVoice, 1.0f, isSec);
+                                                                lastTriggerSourceCode.store(3);
+                                                                lastTriggerFingerIdx.store(subVoice);
+                                                                lastTriggerIsSecondary.store(isSec);
+                                                                triggerPulseAlpha.store(1.0f);
+                                                            }
+                                                        }
+                                                        else if (res == 999)
+                                                        {
+                                                            cables.erase(std::remove_if(cables.begin(), cables.end(),
+                                                                [&](const CanvasCable& cc) {
+                                                                    return (cc.sourceNodeId == nodeId && cc.sourcePinId == pinId);
+                                                                }), cables.end());
+                                                            syncAudioRoutes();
+                                                        }
+                                                        repaint();
+                                                    });
+                                                return;
+                                            }
+
                                             if (testBtn.contains(worldPt))
                                             {
                                                 if (!sub.isEnabled || !grp.isEnabled)
                                                     return; // Disabilitato, niente suono!
 
-                                                const bool isSec = (grp.id == "eye_sx");
-                                                int subVoice = 0;
-                                                if (item.pinId.endsWith("_mid")) subVoice = 1;
-                                                else if (item.pinId.endsWith("_rng")) subVoice = 2;
-                                                else if (item.pinId.endsWith("_pky")) subVoice = 3;
                                                 audioEngine.triggerFromSource(n.id, subVoice, 1.0f, isSec);
                                                 lastTriggerSourceCode.store(3);
+                                                lastTriggerFingerIdx.store(subVoice);
+                                                lastTriggerIsSecondary.store(isSec);
                                                 triggerPulseAlpha.store(1.0f);
                                                 repaint();
                                                 return;

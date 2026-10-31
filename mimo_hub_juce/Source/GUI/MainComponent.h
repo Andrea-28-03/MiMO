@@ -148,6 +148,9 @@ private:
     mimo::audio::AudioEngine audioEngine;
     std::atomic<float> triggerPulseAlpha { 0.0f };
     std::atomic<int> lastTriggerSourceCode { 0 }; // 0=none, 1=hw-drum, 2=hw-mic, 3=hw-eye, 4=other
+    std::atomic<int> lastTriggerFingerIdx { -1 };  // 0=Indice, 1=Medio, 2=Anulare, 3=Mignolo
+    std::atomic<bool> lastTriggerIsSecondary { false }; // false=DX, true=SX
+    static juce::String getSoundNameForId(int soundId);
 
     // Sintetizzatore percussivo / sonoro interno (suona sui colpi del microfono o test)
     std::atomic<bool> synthTriggerPending { false };
