@@ -31,6 +31,13 @@ target_sources(MiMOHub PRIVATE
     Source/Main.cpp
     Source/Audio/AudioDSP.h
     Source/Audio/AudioEngine.h
+    Source/Audio/DSPUtils.h
+    Source/Audio/NodeAudioProcessor.h
+    Source/Audio/Modules/Instruments/AnalogDrumVoice.h
+    Source/Audio/Modules/Instruments/MelodicSynthVoice.h
+    Source/Audio/Modules/Effects/SVFFilter.h
+    Source/Audio/Modules/Effects/StereoTapeDelay.h
+    Source/Audio/Modules/Effects/LushReverb.h
     Source/GUI/MiMOLookAndFeel.h
     Source/GUI/MiMOLookAndFeel.cpp
     Source/GUI/MainComponent.h

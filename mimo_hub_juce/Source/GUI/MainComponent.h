@@ -321,6 +321,7 @@ private:
     juce::String getCameraStatusText() const;
     juce::String getCameraDeviceLabel() const;
 
+    bool isDrumInCanvas() const;
     bool isMicInCanvas() const;
     bool isCameraInCanvas() const;
     bool isHandEnabled(bool isSecondary) const;
@@ -333,6 +334,7 @@ private:
     void stopRealCamera();
     void cycleMicDevice();
     void cycleCameraDevice();
+    void toggleDrumInCanvas();
     void toggleMicInCanvas();
     void toggleCameraInCanvas();
     static juce::Rectangle<float> getIntegratedDeviceRowBounds(const juce::Rectangle<float>& nodeBox);
@@ -565,6 +567,7 @@ private:
 
     juce::Rectangle<float> getIntegratedHeaderBounds() const;
     juce::Rectangle<float> getIntegratedBodyBounds() const;
+    juce::Rectangle<float> getDrumSwitchBounds() const;
     juce::Rectangle<float> getMicSwitchBounds() const;
     juce::Rectangle<float> getMicSliderBounds() const;
     juce::Rectangle<float> getCameraSwitchBounds() const;

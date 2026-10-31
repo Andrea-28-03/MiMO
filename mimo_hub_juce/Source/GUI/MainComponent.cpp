@@ -891,13 +891,15 @@ void MainComponent::audioDeviceIOCallbackWithContext (const float* const* inputC
     if (level >= threshold && micArmed && micHoldSamples <= 0)
     {
         const float vel = juce::jlimit(0.25f, 1.0f, (level - threshold) / std::max(0.05f, 1.0f - threshold) * 0.75f + 0.25f);
-        realMicVelocity.store(vel);
-        realMicTriggered.store(true);
-        audioEngine.triggerFromSource("hw-drum", 0, vel);
-        audioEngine.triggerFromSource("hw-mic", 0, vel);
-        triggerPulseAlpha.store(1.0f);
-        synthHitVelocity.store(vel);
-        synthTriggerPending.store(true);
+        if (isMicInCanvas())
+        {
+            realMicVelocity.store(vel);
+            realMicTriggered.store(true);
+            audioEngine.triggerFromSource("hw-mic", 0, vel);
+            triggerPulseAlpha.store(1.0f);
+            synthHitVelocity.store(vel);
+            synthTriggerPending.store(true);
+        }
         micArmed = false;
         micHoldSamples = static_cast<int>(micSampleRate * 0.075);
     }
@@ -1384,10 +1386,18 @@ void MainComponent::imageReceived (const juce::Image& image)
     }
 }
 
+bool MainComponent::isDrumInCanvas() const
+{
+    for (const auto& n : nodes)
+        if (n.id == "hw-drum")
+            return true;
+    return false;
+}
+
 bool MainComponent::isMicInCanvas() const
 {
     for (const auto& n : nodes)
-        if (n.isIntegratedMic || n.id == "hw-mic" || n.id == "hw-drum")
+        if (n.isIntegratedMic || n.id == "hw-mic")
             return true;
     return false;
 }
@@ -1764,22 +1774,19 @@ juce::StringArray MainComponent::getMicDropdownOptions()
     return opts;
 }
 
-void MainComponent::toggleMicInCanvas()
+void MainComponent::toggleDrumInCanvas()
 {
-    micDropdownOpen = false;
-    if (isMicInCanvas())
+    if (isDrumInCanvas())
     {
-        stopRealMicrophone();
         cables.erase(std::remove_if(cables.begin(), cables.end(),
             [](const CanvasCable& c) {
-                return c.sourceNodeId == "hw-drum" || c.targetNodeId == "hw-drum" ||
-                       c.sourceNodeId == "hw-mic" || c.targetNodeId == "hw-mic";
+                return c.sourceNodeId == "hw-drum" || c.targetNodeId == "hw-drum";
             }), cables.end());
         nodes.erase(std::remove_if(nodes.begin(), nodes.end(),
             [](const CanvasNode& n) {
-                return n.id == "hw-drum" || n.id == "hw-mic" || n.isIntegratedMic;
+                return n.id == "hw-drum";
             }), nodes.end());
-        if (selectedNodeId == "hw-drum" || selectedNodeId == "hw-mic")
+        if (selectedNodeId == "hw-drum")
             selectedNodeId.clear();
     }
     else
@@ -1817,6 +1824,48 @@ void MainComponent::toggleMicInCanvas()
         nodes.push_back(drum);
 
         cables.push_back({ "c-drum-pi", "hw-drum", "audio:out", "rockpi", "audio:p1", false, MiMOLookAndFeel::fountainInk, {} });
+    }
+
+    updateHardwareDeviceStates();
+    syncAudioRoutes();
+    repaint();
+}
+
+void MainComponent::toggleMicInCanvas()
+{
+    micDropdownOpen = false;
+    if (isMicInCanvas())
+    {
+        stopRealMicrophone();
+        cables.erase(std::remove_if(cables.begin(), cables.end(),
+            [](const CanvasCable& c) {
+                return c.sourceNodeId == "hw-mic" || c.targetNodeId == "hw-mic";
+            }), cables.end());
+        nodes.erase(std::remove_if(nodes.begin(), nodes.end(),
+            [](const CanvasNode& n) {
+                return n.id == "hw-mic" || n.isIntegratedMic;
+            }), nodes.end());
+        if (selectedNodeId == "hw-mic")
+            selectedNodeId.clear();
+    }
+    else
+    {
+        CanvasNode micNode;
+        micNode.id = "hw-mic";
+        micNode.type = NodeType::HardwareModule;
+        micNode.isIntegratedMic = true;
+        micNode.label = "Microfono PC (Batteria)";
+        micNode.portBadge = "MIC";
+        micNode.subtitle = "Laptop Mic - Trigger Batteria";
+        micNode.pos = { -560.0f, 175.0f };
+        micNode.size = { 245.0f, 230.0f };
+        micNode.crayonColour = MiMOLookAndFeel::crayonOchre;
+        micNode.modOutputs = {
+            { "vel",   "Velocity",  MiMOLookAndFeel::crayonCherry },
+            { "press", "Pressione", MiMOLookAndFeel::crayonPeach }
+        };
+        nodes.push_back(micNode);
+
         startRealMicrophone();
     }
 
@@ -3186,7 +3235,7 @@ std::vector<MainComponent::PinHit> MainComponent::collectAllPins() const
                 }
             }
 
-            if (node.id == "hw-drum" || node.id == "hw-mic" || node.isIntegratedMic)
+            if (node.outputGroups.empty() && (node.id == "hw-drum" || node.id == "hw-mic" || node.isIntegratedMic))
             {
                 // Trigger Out (Impulso Colpo) -> Rombo Arancio Fiamma
                 const float trigY = node.isIntegratedMic ? (node.pos.y + 115.0f) : (node.pos.y + 109.0f);
@@ -3558,8 +3607,17 @@ void MainComponent::deleteNode(const juce::String& nodeId)
 
     const auto nodeToDelete = *it;
 
-    // Se è un modulo hardware integrato (mic o fotocamera), disattivalo e rilascia l'hardware
-    if (nodeToDelete.isIntegratedMic || nodeToDelete.id == "hw-mic" || nodeToDelete.id == "hw-drum")
+    // Se è un modulo hardware periferico o integrato, rimuovilo correttamente
+    if (nodeToDelete.id == "hw-drum")
+    {
+        toggleDrumInCanvas();
+        if (selectedNodeId == nodeId)
+            selectedNodeId.clear();
+        syncAudioRoutes();
+        repaint();
+        return;
+    }
+    if (nodeToDelete.isIntegratedMic || nodeToDelete.id == "hw-mic")
     {
         toggleMicInCanvas();
         if (selectedNodeId == nodeId)
@@ -3795,8 +3853,17 @@ juce::Rectangle<float> MainComponent::getIntegratedHeaderBounds() const
 juce::Rectangle<float> MainComponent::getIntegratedBodyBounds() const
 {
     const auto header = getIntegratedHeaderBounds();
-    const float h = cameraSettingsOpen ? 230.0f : 108.0f;
+    const float h = cameraSettingsOpen ? 300.0f : 156.0f;
     return { header.getX(), header.getBottom() + 4.0f, header.getWidth(), h };
+}
+
+juce::Rectangle<float> MainComponent::getDrumSwitchBounds() const
+{
+    const auto body = getIntegratedBodyBounds();
+    const float cardX = body.getX() + 8.0f;
+    const float cardW = body.getWidth() - 16.0f;
+    const float drumY = body.getY() + 6.0f;
+    return { cardX + cardW - 74.0f, drumY + 5.0f, 68.0f, 18.0f };
 }
 
 juce::Rectangle<float> MainComponent::getMicSwitchBounds() const
@@ -3804,7 +3871,7 @@ juce::Rectangle<float> MainComponent::getMicSwitchBounds() const
     const auto body = getIntegratedBodyBounds();
     const float cardX = body.getX() + 8.0f;
     const float cardW = body.getWidth() - 16.0f;
-    const float micY = body.getY() + 6.0f;
+    const float micY = body.getY() + 54.0f;
     return { cardX + cardW - 74.0f, micY + 5.0f, 68.0f, 18.0f };
 }
 
@@ -3818,7 +3885,7 @@ juce::Rectangle<float> MainComponent::getCameraSwitchBounds() const
     const auto body = getIntegratedBodyBounds();
     const float cardX = body.getX() + 8.0f;
     const float cardW = body.getWidth() - 16.0f;
-    const float camY = body.getY() + 54.0f;
+    const float camY = body.getY() + 102.0f;
     return { cardX + cardW - 74.0f, camY + 5.0f, 68.0f, 18.0f };
 }
 
@@ -3827,7 +3894,7 @@ juce::Rectangle<float> MainComponent::getCameraSettingsButtonBounds() const
     const auto body = getIntegratedBodyBounds();
     const float cardX = body.getX() + 8.0f;
     const float cardW = body.getWidth() - 16.0f;
-    const float camY = body.getY() + 54.0f;
+    const float camY = body.getY() + 102.0f;
     return { cardX + cardW - 74.0f, camY + 24.0f, 68.0f, 16.0f };
 }
 
@@ -3840,7 +3907,7 @@ juce::Rectangle<float> MainComponent::getCameraModePillBounds(int modeIdx) const
 {
     const auto body = getIntegratedBodyBounds();
     const float cardX = body.getX() + 8.0f;
-    const float camY = body.getY() + 54.0f;
+    const float camY = body.getY() + 102.0f;
     if (modeIdx == 0) // Movimento
         return { cardX + 66.0f,  camY + 46.0f, 62.0f, 18.0f };
     if (modeIdx == 1) // Luce
@@ -3854,7 +3921,7 @@ juce::Rectangle<float> MainComponent::getCameraMirrorCheckboxBounds() const
     const auto body = getIntegratedBodyBounds();
     const float cardX = body.getX() + 8.0f;
     const float cardW = body.getWidth() - 16.0f;
-    const float camY = body.getY() + 54.0f;
+    const float camY = body.getY() + 102.0f;
     return { cardX + 10.0f, camY + 70.0f, cardW - 20.0f, 16.0f };
 }
 
@@ -5343,24 +5410,64 @@ void MainComponent::paintRightSidebar(juce::Graphics& g)
         const float cardW = integBody.getWidth() - 16.0f;
 
         // ---------------------------------------------------------------------
-        // CARD 1: BATTERIA (MICROFONO PC)
+        // CARD 1: BATTERIA (PIEZO ROCKPI P1)
         // ---------------------------------------------------------------------
-        const bool micInCanvas = isMicInCanvas();
-        const float micY = integBody.getY() + 6.0f;
-        const juce::Rectangle<float> micCard(cardX, micY, cardW, 44.0f);
-        MiMOLookAndFeel::drawSketchBox(g, micCard, 312,
-                                       micInCanvas ? MiMOLookAndFeel::crayonOchre : MiMOLookAndFeel::paperCard,
-                                       micInCanvas ? 0.35f : 0.15f, juce::Colours::transparentBlack, 1.4f);
+        const bool drumInCanvas = isDrumInCanvas();
+        const float drumY = integBody.getY() + 6.0f;
+        const juce::Rectangle<float> drumCard(cardX, drumY, cardW, 44.0f);
+        MiMOLookAndFeel::drawSketchBox(g, drumCard, 312,
+                                       drumInCanvas ? MiMOLookAndFeel::crayonSage : MiMOLookAndFeel::paperCard,
+                                       drumInCanvas ? 0.35f : 0.15f, juce::Colours::transparentBlack, 1.4f);
 
         // Titolo e Icona Batteria
         g.setColour(MiMOLookAndFeel::fountainInk);
         g.setFont(juce::Font(12.0f, juce::Font::bold));
-        g.drawText("[P1] Modulo Batteria", static_cast<int>(cardX + 10), static_cast<int>(micY + 5),
+        g.drawText("[P1] Modulo Batteria", static_cast<int>(cardX + 10), static_cast<int>(drumY + 5),
+                   static_cast<int>(cardW - 88), 16, juce::Justification::centredLeft);
+
+        // Bottone Attivazione / Metti nel Canvas
+        const auto drumSw = getDrumSwitchBounds();
+        MiMOLookAndFeel::drawSketchBox(g, drumSw, 313,
+                                       drumInCanvas ? MiMOLookAndFeel::crayonSage : MiMOLookAndFeel::crayonOchre,
+                                       drumInCanvas ? 0.70f : 0.40f, juce::Colours::transparentBlack, 1.2f);
+        g.setColour(MiMOLookAndFeel::fountainInk);
+        g.setFont(juce::Font(8.5f, juce::Font::bold));
+        g.drawText(drumInCanvas ? "NEL CANVAS" : "+ NEL CANVAS", drumSw.toNearestInt(), juce::Justification::centred);
+
+        // Subtitle di stato hardware
+        g.setFont(juce::Font(10.0f, juce::Font::plain));
+        if (drumInCanvas)
+        {
+            g.setColour(MiMOLookAndFeel::crayonSage);
+            g.fillEllipse(cardX + 10.0f, drumY + 26.5f, 6.5f, 6.5f);
+            g.drawText("Sensori Piezo - I2C Ch1", static_cast<int>(cardX + 20), static_cast<int>(drumY + 23), static_cast<int>(cardW - 30), 14, juce::Justification::centredLeft);
+        }
+        else
+        {
+            g.setColour(MiMOLookAndFeel::inkMuted);
+            g.drawEllipse(cardX + 10.0f, drumY + 26.5f, 6.5f, 6.5f, 1.2f);
+            g.drawText("Sensori Piezo (Disattivo)", static_cast<int>(cardX + 20), static_cast<int>(drumY + 23), static_cast<int>(cardW - 30), 14, juce::Justification::centredLeft);
+        }
+
+        // ---------------------------------------------------------------------
+        // CARD 2: MICROFONO INTEGRATO PC (TRIGGER BATTERIA)
+        // ---------------------------------------------------------------------
+        const bool micInCanvas = isMicInCanvas();
+        const float micY = integBody.getY() + 54.0f;
+        const juce::Rectangle<float> micCard(cardX, micY, cardW, 44.0f);
+        MiMOLookAndFeel::drawSketchBox(g, micCard, 314,
+                                       micInCanvas ? MiMOLookAndFeel::crayonOchre : MiMOLookAndFeel::paperCard,
+                                       micInCanvas ? 0.35f : 0.15f, juce::Colours::transparentBlack, 1.4f);
+
+        // Titolo Microfono PC
+        g.setColour(MiMOLookAndFeel::fountainInk);
+        g.setFont(juce::Font(12.0f, juce::Font::bold));
+        g.drawText("[MIC] Microfono (Batteria)", static_cast<int>(cardX + 10), static_cast<int>(micY + 5),
                    static_cast<int>(cardW - 88), 16, juce::Justification::centredLeft);
 
         // Bottone Attivazione / Metti nel Canvas
         const auto micSw = getMicSwitchBounds();
-        MiMOLookAndFeel::drawSketchBox(g, micSw, 313,
+        MiMOLookAndFeel::drawSketchBox(g, micSw, 315,
                                        micInCanvas ? MiMOLookAndFeel::crayonSage : MiMOLookAndFeel::crayonOchre,
                                        micInCanvas ? 0.70f : 0.40f, juce::Colours::transparentBlack, 1.2f);
         g.setColour(MiMOLookAndFeel::fountainInk);
@@ -5371,22 +5478,22 @@ void MainComponent::paintRightSidebar(juce::Graphics& g)
         g.setFont(juce::Font(10.0f, juce::Font::plain));
         if (micInCanvas)
         {
-            g.setColour(MiMOLookAndFeel::crayonSage);
+            g.setColour(MiMOLookAndFeel::crayonOchre);
             g.fillEllipse(cardX + 10.0f, micY + 26.5f, 6.5f, 6.5f);
-            g.drawText("Sensori Piezo - I2C Ch1", static_cast<int>(cardX + 20), static_cast<int>(micY + 23), static_cast<int>(cardW - 30), 14, juce::Justification::centredLeft);
+            g.drawText("Laptop Mic: " + getMicDeviceLabel(), static_cast<int>(cardX + 20), static_cast<int>(micY + 23), static_cast<int>(cardW - 30), 14, juce::Justification::centredLeft);
         }
         else
         {
             g.setColour(MiMOLookAndFeel::inkMuted);
             g.drawEllipse(cardX + 10.0f, micY + 26.5f, 6.5f, 6.5f, 1.2f);
-            g.drawText("Sensori Piezo (Disattivo)", static_cast<int>(cardX + 20), static_cast<int>(micY + 23), static_cast<int>(cardW - 30), 14, juce::Justification::centredLeft);
+            g.drawText("Mic Spento (Metti nel Canvas)", static_cast<int>(cardX + 20), static_cast<int>(micY + 23), static_cast<int>(cardW - 30), 14, juce::Justification::centredLeft);
         }
 
         // ---------------------------------------------------------------------
-        // CARD 2: CAMERA (WEBCAM PC)
+        // CARD 3: CAMERA (WEBCAM PC / MODULO OCCHIO)
         // ---------------------------------------------------------------------
         const bool cameraInCanvas = isCameraInCanvas();
-        const float camY = integBody.getY() + 54.0f;
+        const float camY = integBody.getY() + 102.0f;
         const float camH = cameraSettingsOpen ? 186.0f : 44.0f;
         const juce::Rectangle<float> camCard(cardX, camY, cardW, camH);
         MiMOLookAndFeel::drawSketchBox(g, camCard, 316,
@@ -5423,7 +5530,7 @@ void MainComponent::paintRightSidebar(juce::Graphics& g)
         {
             g.setColour(MiMOLookAndFeel::inkMuted);
             g.drawEllipse(cardX + 10.0f, camY + 27.5f, 6.5f, 6.5f, 1.2f);
-            g.drawText("Tracking Mano (Disattivo)", static_cast<int>(cardX + 20), static_cast<int>(camY + 24), static_cast<int>(cardW - 110), 14, juce::Justification::centredLeft);
+            g.drawText("Webcam Spenta (Metti nel Canvas)", static_cast<int>(cardX + 20), static_cast<int>(camY + 24), static_cast<int>(cardW - 110), 14, juce::Justification::centredLeft);
         }
 
         // Pulsante "QR & AI"
@@ -7019,6 +7126,13 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
 
         if (integratedSectionOpen && getIntegratedBodyBounds().contains(pt))
         {
+            // Bottone Metti / Rimuovi Batteria Hardware dal Canvas
+            if (getDrumSwitchBounds().contains(pt))
+            {
+                toggleDrumInCanvas();
+                return;
+            }
+
             // Bottone Metti / Rimuovi Microfono dal Canvas
             if (getMicSwitchBounds().contains(pt))
             {
@@ -7072,11 +7186,22 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 }
             }
 
-            // Clic altrove nella card del Microfono -> Trascina Microfono nel Canvas!
             const auto integBody = getIntegratedBodyBounds();
             const float cardX = integBody.getX() + 8.0f;
             const float cardW = integBody.getWidth() - 16.0f;
-            const juce::Rectangle<float> micCard(cardX, integBody.getY() + 6.0f, cardW, 44.0f);
+
+            // Clic altrove nella card della Batteria Hardware -> Trascina Modulo Batteria nel Canvas!
+            const juce::Rectangle<float> drumCard(cardX, integBody.getY() + 6.0f, cardW, 44.0f);
+            if (drumCard.contains(pt))
+            {
+                draggedCatalogItem = { "hw-drum", "Hardware P1", "Modulo Batteria", "Sensori Piezo", "Trigger piezo I2C", MiMOLookAndFeel::crayonSage, false, false, {} };
+                dragMode = DragMode::DragSidebarItem;
+                repaint();
+                return;
+            }
+
+            // Clic altrove nella card del Microfono -> Trascina Microfono nel Canvas!
+            const juce::Rectangle<float> micCard(cardX, integBody.getY() + 54.0f, cardW, 44.0f);
             if (micCard.contains(pt))
             {
                 draggedCatalogItem = { "integrated-mic", "Integrato", "Microfono PC (Batteria)", "Laptop", "Trigger audio da mic", MiMOLookAndFeel::crayonOchre, false, true, {} };
@@ -7086,7 +7211,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
             }
 
             // Clic altrove nella card della Webcam -> Trascina Webcam nel Canvas!
-            const juce::Rectangle<float> camCard(cardX, integBody.getY() + 54.0f, cardW, cameraSettingsOpen ? 170.0f : 44.0f);
+            const juce::Rectangle<float> camCard(cardX, integBody.getY() + 102.0f, cardW, cameraSettingsOpen ? 186.0f : 44.0f);
             if (camCard.contains(pt))
             {
                 draggedCatalogItem = { "integrated-webcam", "Integrato", "Webcam PC (Occhio)", "Laptop", "Sensore ottico webcam", MiMOLookAndFeel::crayonCyan, false, true, {} };
@@ -7280,12 +7405,14 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 }
             }
 
-            if (n.isIntegratedMic || n.isIntegratedCamera || n.id == "hw-mic" || n.id == "hw-webcam" || n.id == "hw-eye")
+            if (n.type == NodeType::HardwareModule)
             {
                 const juce::Rectangle<float> closeBtn(box.getRight() - 25.0f, box.getY() + 7.0f, 18.0f, 18.0f);
                 if (closeBtn.contains(worldPt))
                 {
-                    if (n.isIntegratedMic || n.id == "hw-mic")
+                    if (n.id == "hw-drum")
+                        toggleDrumInCanvas();
+                    else if (n.isIntegratedMic || n.id == "hw-mic")
                         toggleMicInCanvas();
                     else if (n.isIntegratedCamera || n.id == "hw-webcam" || n.id == "hw-eye")
                         toggleCameraInCanvas();
@@ -8060,49 +8187,45 @@ void MainComponent::mouseUp(const juce::MouseEvent& e)
     {
         if (!draggedCatalogItem.isEffect)
         {
-            if (draggedCatalogItem.id == "integrated-mic")
+            if (draggedCatalogItem.id == "hw-drum")
             {
-                const juce::String targetHwId = findHwModuleAt(worldPt);
-                if (targetHwId == "hw-drum" || (!isMicInCanvas() && std::find_if(nodes.begin(), nodes.end(), [](const CanvasNode& n){ return n.id == "hw-drum"; }) != nodes.end()))
-                {
-                    if (!isMicInCanvas())
-                        toggleMicInCanvas();
-                }
-                else
-                {
-                    if (!isMicInCanvas())
-                        toggleMicInCanvas();
+                if (!isDrumInCanvas())
+                    toggleDrumInCanvas();
 
-                    for (auto& n : nodes)
+                for (auto& n : nodes)
+                {
+                    if (n.id == "hw-drum")
                     {
-                        if (n.isIntegratedMic || n.id == "hw-mic")
-                        {
-                            n.pos = worldPt - n.size * 0.5f;
-                            break;
-                        }
+                        n.pos = worldPt - n.size * 0.5f;
+                        break;
                     }
                 }
             }
-            else if (draggedCatalogItem.id == "integrated-cam")
+            else if (draggedCatalogItem.id == "integrated-mic")
             {
-                const juce::String targetHwId = findHwModuleAt(worldPt);
-                if (targetHwId == "hw-eye" || (!isCameraInCanvas() && std::find_if(nodes.begin(), nodes.end(), [](const CanvasNode& n){ return n.id == "hw-eye"; }) != nodes.end()))
-                {
-                    if (!isCameraInCanvas())
-                        toggleCameraInCanvas();
-                }
-                else
-                {
-                    if (!isCameraInCanvas())
-                        toggleCameraInCanvas();
+                if (!isMicInCanvas())
+                    toggleMicInCanvas();
 
-                    for (auto& n : nodes)
+                for (auto& n : nodes)
+                {
+                    if (n.isIntegratedMic || n.id == "hw-mic")
                     {
-                        if (n.isIntegratedCamera || n.id == "hw-webcam" || n.id == "hw-eye")
-                        {
-                            n.pos = worldPt - n.size * 0.5f;
-                            break;
-                        }
+                        n.pos = worldPt - n.size * 0.5f;
+                        break;
+                    }
+                }
+            }
+            else if (draggedCatalogItem.id == "integrated-webcam" || draggedCatalogItem.id == "integrated-cam")
+            {
+                if (!isCameraInCanvas())
+                    toggleCameraInCanvas();
+
+                for (auto& n : nodes)
+                {
+                    if (n.isIntegratedCamera || n.id == "hw-webcam" || n.id == "hw-eye")
+                    {
+                        n.pos = worldPt - n.size * 0.5f;
+                        break;
                     }
                 }
             }
