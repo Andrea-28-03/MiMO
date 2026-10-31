@@ -51,12 +51,34 @@ target_sources(MiMOHub PRIVATE
     Source/GUI/MiMOLookAndFeel.cpp
     Source/GUI/CanvasGraph.h
     Source/GUI/CanvasGraph.cpp
+    Source/GUI/CanvasRenderer.h
+    Source/GUI/CanvasRenderer.cpp
+    Source/GUI/CanvasNodeRenderer.cpp
+    Source/GUI/CanvasInteraction.h
+    Source/GUI/CanvasInteraction.cpp
+    Source/GUI/CanvasInteraction_DragDrop.cpp
+    Source/GUI/CanvasAnimation.h
+    Source/GUI/CanvasAnimation.cpp
+    Source/GUI/CanvasGraphEditor.h
+    Source/GUI/CanvasGraphEditor.cpp
+    Source/GUI/SidebarComponent.h
+    Source/GUI/SidebarComponent.cpp
+    Source/GUI/BottomDock.h
+    Source/GUI/BottomDock.cpp
+    Source/GUI/LiveAlbumView.h
+    Source/GUI/LiveAlbumView.cpp
+    Source/GUI/PresetCatalog.h
+    Source/GUI/PresetCatalog.cpp
     Source/GUI/MiMOEyeDrawer.h
     Source/GUI/MiMOEyeDrawer.cpp
     Source/GUI/MainComponent.h
     Source/GUI/MainComponent.cpp
     Source/Devices/HardwareWorkers.h
     Source/Devices/HardwareWorkers.cpp
+    Source/Devices/HandTracker.h
+    Source/Devices/HandTracker.cpp
+    Source/Devices/HardwareManager.h
+    Source/Devices/HardwareManager.cpp
     Source/Utils/qrcodegen.hpp
     Source/Utils/qrcodegen.cpp
     Source/Networking/MiMOEyeServer.h

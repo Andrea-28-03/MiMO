@@ -8,8 +8,16 @@
 #include <juce_video/juce_video.h>
 #include "MiMOLookAndFeel.h"
 #include "CanvasGraph.h"
+#include "CanvasGraphEditor.h"
+#include "CanvasAnimation.h"
 #include "MiMOEyeDrawer.h"
+#include "CanvasRenderer.h"
+#include "SidebarComponent.h"
+#include "BottomDock.h"
+#include "LiveAlbumView.h"
+#include "CanvasInteraction.h"
 #include "../Devices/HardwareWorkers.h"
+#include "../Devices/HardwareManager.h"
 #include "../Networking/MiMOEyeServer.h"
 #include "../Audio/AudioEngine.h"
 #include <vector>
@@ -28,8 +36,20 @@ class MainComponent : public juce::Component,
 public:
     friend class MicWorker;
     friend class CameraWorker;
+    friend class HardwareManager;
+    friend class HandTracker;
+    friend class PresetCatalog;
+    friend class CanvasGraphEditor;
+    friend class CanvasAnimation;
+    friend class CanvasRenderer;
+    friend class SidebarComponent;
+    friend class BottomDock;
+    friend class LiveAlbumView;
+    friend class CanvasInteraction;
+    friend void MiMOEyeDrawer::drawModernFlatEyeModal(juce::Graphics& g, MainComponent& comp);
+    friend bool MiMOEyeDrawer::handleMouseDown(MainComponent& comp, const juce::Point<float>& pt);
 
-    // Type aliases per compatibilità retroattiva con i tipi estratti
+    // Type aliases per compatibilità retroattiva
     using VideoSourceItem = mimo::VideoSourceItem;
     using KnobParam = mimo::KnobParam;
     using InnerFaustBlock = mimo::InnerFaustBlock;
@@ -56,10 +76,10 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
 
-    // DarkModeSettingListener (Sincronizzazione automatica con il tema di sistema)
+    // DarkModeSettingListener
     void darkModeSettingChanged() override;
 
-    // AudioIODeviceCallback (Microfono reale del laptop)
+    // AudioIODeviceCallback
     void audioDeviceIOCallbackWithContext (const float* const* inputChannelData,
                                            int numInputChannels,
                                            float* const* outputChannelData,
@@ -69,8 +89,8 @@ public:
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
 
-    // CameraDevice::Listener (Videocamera/Webcam reale del laptop)
-    void imageReceived (const juce::Image& image) override;
+    // CameraDevice::Listener
+    void imageReceived (const juce::Image& image) override { HardwareManager::processWebcamImage(*this, image); }
 
     // Interazioni Mouse & Tastiera Nativa JUCE
     void mouseMove(const juce::MouseEvent& e) override;
@@ -88,9 +108,7 @@ private:
     MiMOLookAndFeel lookAndFeel;
     juce::Image paperTextureCache;
 
-    // =========================================================================
     // Stato Attivo dell'Applicazione
-    // =========================================================================
     ActiveTab activeTab = ActiveTab::Studio;
 
     // Pan & Zoom liberi sul Canvas Infinito
@@ -105,7 +123,7 @@ private:
     std::vector<CanvasNode> nodes;
     std::vector<CanvasCable> cables;
 
-    // Sidebar destra a scomparsa con zone indipendenti (Moduli Integrati, Strumenti, Effetti)
+    // Sidebar destra a scomparsa
     bool sidebarOpen = true;
     bool integratedSectionOpen = true;
     bool instrumentsSectionOpen = true;
@@ -117,7 +135,7 @@ private:
     std::vector<CatalogItem> utilityCatalog;
     float sidebarScrollY = 0.0f;
 
-    // Moduli Integrati (Hardware Reale del Laptop: Microfono & Webcam)
+    // Moduli Integrati
     float micSensitivity = 0.65f;
     bool micTriggerFired = false;
     int micTriggerTicks = 0;
@@ -127,38 +145,38 @@ private:
     bool cameraMirror = true;
     CameraTrackingMode cameraTrackingMode = CameraTrackingMode::Motion;
 
-    // --- Microfono + Sintesi Audio (gestiti su thread dedicato MicWorker: 0 ms blocco UI) ---
+    // Microfono + Sintesi Audio
     std::unique_ptr<MicWorker> micWorker;
-    std::atomic<int> micStateAtomic { 0 };         // HwState (scritto da MicWorker)
+    std::atomic<int> micStateAtomic { 0 };
     juce::CriticalSection micInfoLock;
     juce::String micStatusText;
     juce::String micDeviceName;
     juce::StringArray micDeviceList;
-    std::atomic<int> micDeviceIndex { -1 };        // -1 = selezione automatica microfono fisico
-    bool isMicRecording = false;                   // desiderato (modulo nel canvas)
+    std::atomic<int> micDeviceIndex { -1 };
+    bool isMicRecording = false;
     float lastDrawnMicLevel = -1.0f;
-    std::atomic<float> realMicLevel { 0.0f };      // 0..1 su scala dB (-58..0 dB)
+    std::atomic<float> realMicLevel { 0.0f };
     std::atomic<float> realMicPeakRaw { 0.0f };
     std::atomic<float> realMicVelocity { 0.0f };
     std::atomic<bool> realMicTriggered { false };
     std::atomic<float> micThresholdAtomic { 0.45f };
-    double micSampleRate = 48000.0;                // audio thread
-    int micHoldSamples = 0;                        // audio thread
-    bool micArmed = true;                          // audio thread
+    double micSampleRate = 48000.0;
+    int micHoldSamples = 0;
+    bool micArmed = true;
     float getMicThreshold() const noexcept { return juce::jlimit(0.05f, 0.95f, 0.96f - micSensitivity * 0.86f); }
 
-    // Motore Audio Modulare DSP (Thread Audio Master)
+    // Motore Audio Modulare DSP
     mimo::audio::AudioEngine audioEngine;
     std::atomic<float> triggerPulseAlpha { 0.0f };
-    std::atomic<int> lastTriggerSourceCode { 0 }; // 0=none, 1=hw-drum, 2=hw-mic, 3=hw-eye, 4=other
-    std::atomic<int> lastTriggerFingerIdx { -1 };  // 0=Indice, 1=Medio, 2=Anulare, 3=Mignolo
-    std::atomic<bool> lastTriggerIsSecondary { false }; // false=DX, true=SX
+    std::atomic<int> lastTriggerSourceCode { 0 };
+    std::atomic<int> lastTriggerFingerIdx { -1 };
+    std::atomic<bool> lastTriggerIsSecondary { false };
     static juce::String getSoundNameForId(int soundId);
 
-    // Sintetizzatore percussivo / sonoro interno (suona sui colpi del microfono o test)
+    // Sintetizzatore percussivo / sonoro interno
     std::atomic<bool> synthTriggerPending { false };
     std::atomic<float> synthHitVelocity { 0.8f };
-    std::atomic<int> synthInstrumentType { 0 };    // 0=Drum Kit, 1=808 Sub, 2=Kalimba/Marimba, 3=Synth
+    std::atomic<int> synthInstrumentType { 0 };
     std::atomic<float> synthFilterCutoffHz { 2400.0f };
     std::atomic<float> synthFilterReso { 0.3f };
     std::atomic<float> synthMasterGain { 1.20f };
@@ -175,20 +193,20 @@ private:
     float synthFilterBp = 0.0f;
     uint32_t synthRng = 22222u;
 
-    void setMicStatus(HwState st, const juce::String& text);
-    juce::String getMicStatusText() const;
-    juce::String getMicDeviceLabel() const;
+    void setMicStatus(HwState st, const juce::String& text) { HardwareManager::setMicStatus(*this, st, text); }
+    juce::String getMicStatusText() const { return HardwareManager::getMicStatusText(*this); }
+    juce::String getMicDeviceLabel() const { return HardwareManager::getMicDeviceLabel(*this); }
 
-    // --- Webcam (aperta/chiusa su un thread dedicato: l'interfaccia non si blocca mai) ---
+    // Webcam
     std::unique_ptr<CameraWorker> cameraWorker;
-    std::atomic<int> cameraState { 0 };            // HwState (scritto dal worker)
+    std::atomic<int> cameraState { 0 };
     juce::CriticalSection cameraInfoLock;
     juce::String cameraStatusText;
     juce::String cameraDeviceName;
     juce::StringArray cameraDeviceList;
-    std::atomic<int> cameraDeviceIndex { -1 };     // -1 = selezione automatica webcam fisica
+    std::atomic<int> cameraDeviceIndex { -1 };
     std::atomic<int> cameraFrameCounter { 0 };
-    bool isCameraRecording = false;                // desiderato (modulo nel canvas)
+    bool isCameraRecording = false;
     juce::CriticalSection cameraLock;
     juce::Image latestWebcamImage;
     juce::Image prevWebcamImage;
@@ -198,9 +216,9 @@ private:
     std::atomic<float> realCameraCentroidY { 0.0f };
     std::atomic<bool> hasNewWebcamFrame { false };
 
-    void setCameraStatus(HwState st, const juce::String& text);
-    juce::String getCameraStatusText() const;
-    juce::String getCameraDeviceLabel() const;
+    void setCameraStatus(HwState st, const juce::String& text) { HardwareManager::setCameraStatus(*this, st, text); }
+    juce::String getCameraStatusText() const { return HardwareManager::getCameraStatusText(*this); }
+    juce::String getCameraDeviceLabel() const { return HardwareManager::getCameraDeviceLabel(*this); }
 
     bool isDrumInCanvas() const;
     bool isMicInCanvas() const;
@@ -208,22 +226,25 @@ private:
     bool isHandEnabled(bool isSecondary) const;
     bool isHandTriggersEnabled(bool isSecondary) const;
     bool isGroupEnabled(const juce::String& groupId) const;
-    void updateHardwareDeviceStates();
-    void startRealMicrophone();
-    void stopRealMicrophone();
-    void startRealCamera();
-    void stopRealCamera();
-    void cycleMicDevice();
-    void cycleCameraDevice();
-    void toggleDrumInCanvas();
-    void toggleMicInCanvas();
-    void toggleCameraInCanvas();
-    static juce::Rectangle<float> getIntegratedDeviceRowBounds(const juce::Rectangle<float>& nodeBox);
+    void updateHardwareDeviceStates() { HardwareManager::updateHardwareDeviceStates(*this); }
+    void startRealMicrophone() { HardwareManager::startRealMicrophone(*this); }
+    void stopRealMicrophone() { HardwareManager::stopRealMicrophone(*this); }
+    void startRealCamera() { HardwareManager::startRealCamera(*this); }
+    void stopRealCamera() { HardwareManager::stopRealCamera(*this); }
+    void cycleMicDevice() { HardwareManager::cycleMicDevice(*this); }
+    void cycleCameraDevice() { HardwareManager::cycleCameraDevice(*this); }
+    void toggleDrumInCanvas() { CanvasGraphEditor::toggleDrumInCanvas(*this); }
+    void toggleMicInCanvas() { CanvasGraphEditor::toggleMicInCanvas(*this); }
+    void toggleCameraInCanvas() { CanvasGraphEditor::toggleCameraInCanvas(*this); }
+    static juce::Rectangle<float> getIntegratedDeviceRowBounds(const juce::Rectangle<float>& nodeBox)
+    {
+        return { nodeBox.getX() + 12.0f, nodeBox.getBottom() - 26.0f, nodeBox.getWidth() - 24.0f, 19.0f };
+    }
 
-    // --- MiMO Eye AI Server & Drawer / Popup Modal + Tendine Canvas ---
+    // MiMO Eye AI Server & Drawer
     std::unique_ptr<mimo::MiMOEyeServer> eyeServer;
     bool eyeDrawerOpen = false;
-    int eyeDrawerTab = 0; // 0 = Webcam PC & Sorgenti, 1 = Connetti Smartphone (QR)
+    int eyeDrawerTab = 0;
     bool camDropdownOpen = false;
     bool micDropdownOpen = false;
     bool useSmartphoneEye = false;
@@ -233,42 +254,23 @@ private:
     bool hasSmoothedHandState = false;
     mimo::HandTrackingState analyzeHandFrame(const juce::Image& frame);
 
-    // Impostazioni Dettaglio Analisi Mano su PC (Mano, Numero Falangi, Gesture)
-    int eyeHandFilter = 0;             // 0 = Entrambe, 1 = Mano Destra, 2 = Mano Sinistra
-    int eyePhalanxDetail = 2;          // 0 = Palmo (1 pt), 1 = 5 Punte Dita (6 pt), 2 = 21 Falangi Complete
-    bool eyeGesturePos3D = true;       // Assi X / Y / Profondita Z
-    bool eyeGestureFistTilt = true;    // Chiusura Pugno + Rotazione Mano
-    bool eyeGestureFingerFlex = false; // Flessione 4 Falangi Singole
-    bool eyeGesturePinchTrig = true;   // Trigger Percussivi Pinch
+    int eyeHandFilter = 0;
+    int eyePhalanxDetail = 2;
+    bool eyeGesturePos3D = true;
+    bool eyeGestureFistTilt = true;
+    bool eyeGestureFingerFlex = false;
+    bool eyeGesturePinchTrig = true;
 
-    void syncEyeNodeOutputsWithDetailSettings();
+    void syncEyeNodeOutputsWithDetailSettings() { HardwareManager::syncEyeNodeOutputsWithDetailSettings(*this); }
+    std::vector<VideoSourceItem> getVideoSourceItems() const { return HardwareManager::getVideoSourceItems(*this); }
+    void selectVideoSource(bool useSmartphone, int pcDeviceIdx = -1, const juce::String& pcDeviceName = {})
+    {
+        HardwareManager::selectVideoSource(*this, useSmartphone, pcDeviceIdx, pcDeviceName);
+    }
+    juce::StringArray getCameraDropdownOptions() { return HardwareManager::getCameraDropdownOptions(*this); }
+    juce::StringArray getMicDropdownOptions() { return HardwareManager::getMicDropdownOptions(*this); }
 
-    std::vector<VideoSourceItem> getVideoSourceItems() const;
-    void selectVideoSource(bool useSmartphone, int pcDeviceIdx = -1, const juce::String& pcDeviceName = {});
-
-    juce::StringArray getCameraDropdownOptions();
-    juce::StringArray getMicDropdownOptions();
-    void paintCanvasDropdowns(juce::Graphics& g);
-    void drawModernFlatEyeCard(juce::Graphics& g, const CanvasNode& node);
-    void drawModernFlatEyeModal(juce::Graphics& g);
-    void drawHandSkeleton(juce::Graphics& g, juce::Rectangle<float> bounds, const mimo::HandTrackingState& state, bool overVideo = false);
-    static void drawQrCode(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> bounds);
-
-    juce::Rectangle<float> getEyeModalBounds() const { return MiMOEyeDrawer::getEyeModalBounds(getWidth(), getHeight()); }
-    juce::Rectangle<float> getEyeModalCloseBounds() const { return MiMOEyeDrawer::getEyeModalCloseBounds(getWidth(), getHeight()); }
-    juce::Rectangle<float> getEyeModalTabBounds(int tabIdx) const { return MiMOEyeDrawer::getEyeModalTabBounds(getWidth(), getHeight(), tabIdx); }
-    juce::Rectangle<float> getEyeModalUrlButtonBounds() const { return MiMOEyeDrawer::getEyeModalUrlButtonBounds(getWidth(), getHeight()); }
-    juce::Rectangle<float> getEyeModalActivatePhoneButtonBounds() const { return MiMOEyeDrawer::getEyeModalActivatePhoneButtonBounds(getWidth(), getHeight()); }
-    juce::Rectangle<float> getEyeModalHandFilterBounds(int filterIdx) const { return MiMOEyeDrawer::getEyeModalHandFilterBounds(getWidth(), getHeight(), filterIdx); }
-    juce::Rectangle<float> getEyeModalPhalanxBounds(int detailIdx) const { return MiMOEyeDrawer::getEyeModalPhalanxBounds(getWidth(), getHeight(), detailIdx); }
-    juce::Rectangle<float> getEyeModalGestureBounds(int gestureIdx) const { return MiMOEyeDrawer::getEyeModalGestureBounds(getWidth(), getHeight(), gestureIdx); }
-    juce::Rectangle<float> getEyeModalPinchTestBounds(int pinchIdx) const { return MiMOEyeDrawer::getEyeModalPinchTestBounds(getWidth(), getHeight(), pinchIdx); }
-    juce::Rectangle<float> getEyeModalCameraOptionBounds(int optIdx) const { return MiMOEyeDrawer::getEyeModalCameraOptionBounds(getWidth(), getHeight(), optIdx); }
-    juce::Rectangle<float> getEyeModalViewToggleBounds() const { return MiMOEyeDrawer::getEyeModalViewToggleBounds(getWidth(), getHeight()); }
-    static juce::Rectangle<float> getEyeCardConfigButtonBounds(const juce::Rectangle<float>& nodeBox) { return MiMOEyeDrawer::getEyeCardConfigButtonBounds(nodeBox); }
-    static juce::Rectangle<float> getEyeCardViewToggleButtonBounds(const juce::Rectangle<float>& nodeBox) { return MiMOEyeDrawer::getEyeCardViewToggleButtonBounds(nodeBox); }
-
-    // Editor Nodi Nested a tutto schermo (Doppio Clic) e Selezione Nodi
+    // Editor Nodi Nested a tutto schermo e Selezione Nodi
     juce::String expandedNodeId;
     juce::String selectedNodeId;
 
@@ -282,7 +284,7 @@ private:
     int activeSceneSlot = 0;
     int editingSlotIndex = -1;
 
-    // Stato Workspace LIVE (Performance & Feedback I2C)
+    // Stato Workspace LIVE
     int selectedAlbumIndex = -1;
     juce::String filterEngine = "ALL";
     int hoveredSlotIndex = -1;
@@ -299,11 +301,8 @@ private:
     void toggleLooper();
     void clearLooper();
     void triggerSceneSlot(int slotIdx);
-    juce::Rectangle<float> getLooperBounds() const;
 
-    // =========================================================================
-    // Stato di Interazione Mouse / Drag & Drop
-    // =========================================================================
+    // Drag & Drop
     DragMode dragMode = DragMode::None;
     juce::Point<float> dragStartMouse;
     juce::Point<float> dragStartOffset;
@@ -329,27 +328,22 @@ private:
     juce::String selectedPinNodeId;
     juce::String selectedPinId;
 
-    // Distacco e re-routing cavi
     bool isUnhookingExistingCable = false;
     CanvasCable unhookedOriginalCable;
     juce::Point<float> unhookDragStartWorld;
 
-    // Hover sui Pin e sui Cavi
     juce::String hoveredPinNodeId;
     juce::String hoveredPinId;
     juce::Point<float> hoveredPinPos;
     bool hasHoveredPin = false;
 
-    // Drag & Drop dalla Sidebar Destra o Polaroid
     CatalogItem draggedCatalogItem;
     PolaroidItem draggedPolaroid;
     juce::Point<float> currentMousePos;
     juce::String hoveredHwNodeId;
     juce::String hoveredAudioCableId;
 
-    // =========================================================================
-    // Metodi Interni di Inizializzazione, Layout, Hit-Testing e Rendering
-    // =========================================================================
+    // Inizializzazione, Layout, Hit-Testing e Rendering
     void initCatalogs();
     void initDefaultStudioGraph();
     CanvasNode createFxNodeFromCatalog(const CatalogItem& fx, juce::Point<float> worldPos, int uniqueSeed, bool isVertical = false)
@@ -404,60 +398,57 @@ private:
     {
         return CanvasGeometry::findHwModuleAt(nodes, worldPt);
     }
-    void insertEffectOnCable(const CatalogItem& fx, const juce::String& cableId, juce::Point<float> worldPos);
-    void deleteSelectedEffect();
-    void deleteNode(const juce::String& nodeId);
+    void insertEffectOnCable(const CatalogItem& fx, const juce::String& cableId, juce::Point<float> worldPos)
+    {
+        CanvasGraphEditor::insertEffectOnCable(*this, fx, cableId, worldPos);
+    }
+    void deleteSelectedEffect()
+    {
+        CanvasGraphEditor::deleteSelectedEffect(*this);
+    }
+    void deleteNode(const juce::String& nodeId)
+    {
+        CanvasGraphEditor::deleteNode(*this, nodeId);
+    }
 
     // Azioni Polaroid
-    void triggerSnapPolaroid();
-    void commitPolaroidToAlbum(const PolaroidItem& item);
-    void assignPolaroidToSlot(int slotIdx, const PolaroidItem& item);
+    void triggerSnapPolaroid() { LiveAlbumView::triggerSnapPolaroid(*this); }
+    void commitPolaroidToAlbum(const PolaroidItem& item) { LiveAlbumView::commitPolaroidToAlbum(*this, item); }
+    void assignPolaroidToSlot(int slotIdx, const PolaroidItem& item) { LiveAlbumView::assignPolaroidToSlot(*this, slotIdx, item); }
 
-    // Metodi di Disegno Sezioni
-    void paintStudioCanvas(juce::Graphics& g);
-    void paintCanvasNode(juce::Graphics& g, const CanvasNode& node);
-    void paintRightSidebar(juce::Graphics& g);
-    void paintNestedModal(juce::Graphics& g, const CanvasNode& node);
-    void paintLiveAlbumView(juce::Graphics& g);
-    void paintCommunityView(juce::Graphics& g);
-    void paintPolaroidOverlay(juce::Graphics& g);
-    void paintBottomDockAndSlots(juce::Graphics& g);
-    void paintSettingsPanel(juce::Graphics& g);
-
-    // Rettangoli UI fissi (Screen Space)
-    juce::Rectangle<float> getSidebarToggleBounds() const;
-    juce::Rectangle<float> getCameraButtonBounds() const;
-    juce::Rectangle<float> getSettingsButtonBounds() const;
-    juce::Rectangle<float> getSettingsPanelBounds() const;
-    juce::Rectangle<float> getSettingsVolumeTrackBounds() const;
-    juce::Rectangle<float> getSettingsVolDownBtnBounds() const;
-    juce::Rectangle<float> getSettingsVol100BtnBounds() const;
-    juce::Rectangle<float> getSettingsVol150BtnBounds() const;
-    juce::Rectangle<float> getSettingsVolUpBtnBounds() const;
-
-    juce::Rectangle<float> getIntegratedHeaderBounds() const;
-    juce::Rectangle<float> getIntegratedBodyBounds() const;
-    juce::Rectangle<float> getDrumSwitchBounds() const;
-    juce::Rectangle<float> getMicSwitchBounds() const;
-    juce::Rectangle<float> getMicSliderBounds() const;
-    juce::Rectangle<float> getCameraSwitchBounds() const;
-    juce::Rectangle<float> getCameraSettingsButtonBounds() const;
-    juce::Rectangle<float> getCameraSliderBounds() const;
-    juce::Rectangle<float> getCameraModePillBounds(int modeIdx) const;
-    juce::Rectangle<float> getCameraMirrorCheckboxBounds() const;
-
-    juce::Rectangle<float> getInstrumentsHeaderBounds() const;
-    juce::Rectangle<float> getInstrumentsBodyBounds() const;
-    juce::Rectangle<float> getEffectsHeaderBounds() const;
-    juce::Rectangle<float> getEffectsBodyBounds() const;
-    juce::Rectangle<float> getUtilitiesHeaderBounds() const;
-    juce::Rectangle<float> getUtilitiesBodyBounds() const;
-    float getSidebarContentHeight() const;
-    float getSidebarMaxScroll() const;
-    juce::Rectangle<float> getSidebarViewportBounds() const;
-    juce::Rectangle<float> getSlotBounds(int slotIdx) const;
-    juce::Rectangle<float> getDockTabBounds(int tabIdx) const;
-    juce::Rectangle<float> getPolaroidCardBounds() const;
+    // Inoltro Layout e Bounds
+    juce::Rectangle<float> getLooperBounds() const { return BottomDock::getLooperBounds(getWidth(), getHeight(), activeTab); }
+    juce::Rectangle<float> getDockTabBounds(int tabIdx) const { return BottomDock::getDockTabBounds(tabIdx, getWidth(), getHeight()); }
+    juce::Rectangle<float> getSlotBounds(int slotIdx) const { return BottomDock::getSlotBounds(slotIdx, getWidth(), getHeight(), activeTab); }
+    juce::Rectangle<float> getSidebarToggleBounds() const { return SidebarComponent::getSidebarToggleBounds(getWidth(), getHeight(), sidebarOpen); }
+    juce::Rectangle<float> getCameraButtonBounds() const { return SidebarComponent::getCameraButtonBounds(getWidth(), getHeight(), sidebarOpen); }
+    juce::Rectangle<float> getSettingsButtonBounds() const { return SidebarComponent::getSettingsButtonBounds(getWidth(), getHeight(), sidebarOpen); }
+    juce::Rectangle<float> getSettingsPanelBounds() const { return SidebarComponent::getSettingsPanelBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getSettingsVolumeTrackBounds() const { return SidebarComponent::getSettingsVolumeTrackBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getSettingsVolDownBtnBounds() const { return SidebarComponent::getSettingsVolDownBtnBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getSettingsVol100BtnBounds() const { return SidebarComponent::getSettingsVol100BtnBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getSettingsVol150BtnBounds() const { return SidebarComponent::getSettingsVol150BtnBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getSettingsVolUpBtnBounds() const { return SidebarComponent::getSettingsVolUpBtnBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getIntegratedHeaderBounds() const { return SidebarComponent::getIntegratedHeaderBounds(getWidth(), getHeight(), sidebarScrollY); }
+    juce::Rectangle<float> getIntegratedBodyBounds() const { return SidebarComponent::getIntegratedBodyBounds(getWidth(), getHeight(), sidebarScrollY, cameraSettingsOpen); }
+    juce::Rectangle<float> getDrumSwitchBounds() const { return SidebarComponent::getDrumSwitchBounds(getWidth(), getHeight(), sidebarScrollY, cameraSettingsOpen); }
+    juce::Rectangle<float> getMicSwitchBounds() const { return SidebarComponent::getMicSwitchBounds(getWidth(), getHeight(), sidebarScrollY, cameraSettingsOpen); }
+    juce::Rectangle<float> getMicSliderBounds() const { return {}; }
+    juce::Rectangle<float> getCameraSwitchBounds() const { return SidebarComponent::getCameraSwitchBounds(getWidth(), getHeight(), sidebarScrollY, cameraSettingsOpen); }
+    juce::Rectangle<float> getCameraSettingsButtonBounds() const { return SidebarComponent::getCameraSettingsButtonBounds(getWidth(), getHeight(), sidebarScrollY, cameraSettingsOpen); }
+    juce::Rectangle<float> getCameraSliderBounds() const { return {}; }
+    juce::Rectangle<float> getCameraModePillBounds(int modeIdx) const { return SidebarComponent::getCameraModePillBounds(getWidth(), getHeight(), sidebarScrollY, modeIdx); }
+    juce::Rectangle<float> getCameraMirrorCheckboxBounds() const { return SidebarComponent::getCameraMirrorCheckboxBounds(getWidth(), getHeight(), sidebarScrollY); }
+    juce::Rectangle<float> getInstrumentsHeaderBounds() const { return SidebarComponent::getInstrumentsHeaderBounds(getWidth(), getHeight(), sidebarScrollY, integratedSectionOpen, cameraSettingsOpen); }
+    juce::Rectangle<float> getInstrumentsBodyBounds() const { return SidebarComponent::getInstrumentsBodyBounds(getWidth(), getHeight(), sidebarScrollY, integratedSectionOpen, cameraSettingsOpen, instrumentCatalog.size()); }
+    juce::Rectangle<float> getEffectsHeaderBounds() const { return SidebarComponent::getEffectsHeaderBounds(getWidth(), getHeight(), sidebarScrollY, integratedSectionOpen, cameraSettingsOpen, instrumentsSectionOpen, instrumentCatalog.size()); }
+    juce::Rectangle<float> getEffectsBodyBounds() const { return SidebarComponent::getEffectsBodyBounds(getWidth(), getHeight(), sidebarScrollY, integratedSectionOpen, cameraSettingsOpen, instrumentsSectionOpen, instrumentCatalog.size(), effectCatalog.size()); }
+    juce::Rectangle<float> getUtilitiesHeaderBounds() const { return SidebarComponent::getUtilitiesHeaderBounds(getWidth(), getHeight(), sidebarScrollY, integratedSectionOpen, cameraSettingsOpen, instrumentsSectionOpen, instrumentCatalog.size(), effectsSectionOpen, effectCatalog.size()); }
+    juce::Rectangle<float> getUtilitiesBodyBounds() const { return SidebarComponent::getUtilitiesBodyBounds(getWidth(), getHeight(), sidebarScrollY, integratedSectionOpen, cameraSettingsOpen, instrumentsSectionOpen, instrumentCatalog.size(), effectsSectionOpen, effectCatalog.size(), utilityCatalog.size()); }
+    float getSidebarContentHeight() const { return SidebarComponent::getSidebarContentHeight(integratedSectionOpen, cameraSettingsOpen, instrumentsSectionOpen, instrumentCatalog.size(), effectsSectionOpen, effectCatalog.size(), utilitiesSectionOpen, utilityCatalog.size()); }
+    float getSidebarMaxScroll() const { return SidebarComponent::getSidebarMaxScroll(getHeight(), getSidebarContentHeight()); }
+    juce::Rectangle<float> getSidebarViewportBounds() const { return SidebarComponent::getSidebarViewportBounds(getWidth(), getHeight()); }
+    juce::Rectangle<float> getPolaroidCardBounds() const { return { static_cast<float>(getWidth()) * 0.5f - 175.0f, static_cast<float>(getHeight()) * 0.5f - 210.0f, 350.0f, 390.0f }; }
 
     // Gestione Modalità Notte
     bool isDarkMode = true;

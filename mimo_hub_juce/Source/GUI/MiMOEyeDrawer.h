@@ -12,6 +12,7 @@ class MainComponent;
 namespace MiMOEyeDrawer
 {
     void drawModernFlatEyeModal(juce::Graphics& g, MainComponent& comp);
+    bool handleMouseDown(MainComponent& comp, const juce::Point<float>& pt);
     void drawHandSkeleton(juce::Graphics& g, juce::Rectangle<float> bounds,
                           const mimo::HandTrackingState& state, bool overVideo,
                           bool handEnabledPrim, bool handEnabledSec,
