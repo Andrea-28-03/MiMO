@@ -293,13 +293,19 @@ public:
         pendingTriggers.push_back(ev);
     }
 
+    struct TargetAction
+    {
+        juce::String nodeId;
+        int voiceIdx = 0;
+    };
+
     void triggerFromSource(const juce::String& sourceId, int subVoice, float velocity, bool isSecondary = false)
     {
-        std::vector<juce::String> targetInstruments;
+        std::vector<TargetAction> targets;
         {
             const std::lock_guard<std::mutex> lock(graphMutex);
 
-            // 1. Cerca connessioni trigger dirette
+            // 1. Cerca connessioni trigger dirette verso nodi o prese specifiche di voce
             for (const auto& r : activeRoutes)
             {
                 const bool matchSource = (r.sourceNodeId == sourceId ||
@@ -307,7 +313,29 @@ public:
                                          (sourceId == "hw-webcam" && r.sourceNodeId == "hw-eye"));
 
                 bool pinMatches = false;
-                if (r.sourcePinId == "trigger:out")
+                int specificVoice = subVoice;
+
+                if (r.targetPinId == "trigger:kick")
+                {
+                    specificVoice = 0;
+                    pinMatches = true;
+                }
+                else if (r.targetPinId == "trigger:snare")
+                {
+                    specificVoice = 1;
+                    pinMatches = true;
+                }
+                else if (r.targetPinId == "trigger:hat")
+                {
+                    specificVoice = 2;
+                    pinMatches = true;
+                }
+                else if (r.targetPinId == "trigger:tom")
+                {
+                    specificVoice = 3;
+                    pinMatches = true;
+                }
+                else if (r.sourcePinId == "trigger:out")
                 {
                     pinMatches = true;
                 }
@@ -335,13 +363,12 @@ public:
 
                 if (matchSource && pinMatches)
                 {
-                    if (std::find(targetInstruments.begin(), targetInstruments.end(), r.targetNodeId) == targetInstruments.end())
-                        targetInstruments.push_back(r.targetNodeId);
+                    targets.push_back({ r.targetNodeId, specificVoice });
                 }
             }
 
             // 2. Connessioni convenzionali da base rockpi o cavo audio diretto
-            if (targetInstruments.empty())
+            if (targets.empty())
             {
                 for (const auto& r : activeRoutes)
                 {
@@ -355,11 +382,11 @@ public:
                         {
                             for (const auto& r2 : activeRoutes)
                                 if (r2.sourceNodeId == "rockpi" && !r2.isModulation)
-                                    targetInstruments.push_back(r2.targetNodeId);
+                                    targets.push_back({ r2.targetNodeId, subVoice });
                         }
                         else if (!r.isModulation)
                         {
-                            targetInstruments.push_back(r.targetNodeId);
+                            targets.push_back({ r.targetNodeId, subVoice });
                         }
                     }
                 }
@@ -367,7 +394,7 @@ public:
         }
 
         // Se non ci sono cavi espliciti verso strumenti
-        if (targetInstruments.empty())
+        if (targets.empty())
         {
             if (sourceId == "hw-eye" || sourceId == "hw-webcam")
             {
@@ -382,8 +409,8 @@ public:
         }
         else
         {
-            for (const auto& target : targetInstruments)
-                triggerInstrument(target, subVoice, velocity);
+            for (const auto& target : targets)
+                triggerInstrument(target.nodeId, target.voiceIdx, velocity);
         }
     }
 
@@ -730,9 +757,15 @@ private:
             return std::make_unique<dsp::Theremin3DVoice>();
         if (full.contains("karplus") || full.contains("pluck") || full.contains("kalimba") || full.contains("box") || full.contains("carillon"))
             return std::make_unique<dsp::KarplusPluckVoice>();
+        if (full.contains("felt") || full.contains("piano"))
+        {
+            auto piano = std::make_unique<dsp::MelodicSynthVoice>();
+            piano->setIsPianoFelt(true);
+            return piano;
+        }
         if (full.contains("drum") || full.contains("kit") || full.contains("toy") || full.contains("percuss") || full.contains("cassa"))
             return std::make_unique<dsp::AnalogDrumKit>();
-        if (full.contains("synth") || full.contains("va") || full.contains("lead") || full.contains("bass") || full.contains("felt") || full.contains("piano") || full.contains("chalk"))
+        if (full.contains("synth") || full.contains("va") || full.contains("lead") || full.contains("bass") || full.contains("chalk"))
             return std::make_unique<dsp::MelodicSynthVoice>();
 
         // Effetti

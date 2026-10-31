@@ -129,14 +129,15 @@ std::vector<KnobHit> CanvasGeometry::collectCanvasKnobs(const std::vector<Canvas
         else if (node.type == NodeType::InstrumentNode && !node.directParams.empty())
         {
             const int count = static_cast<int>(node.directParams.size());
-            const float marginL = 38.0f;
+            const bool isPerc = (node.id.containsIgnoreCase("drum") || node.id.containsIgnoreCase("percuss"));
+            const float marginL = isPerc ? 56.0f : 38.0f;
             const float marginR = 18.0f;
             const float availW = node.size.x - marginL - marginR;
             const float slotW = availW / static_cast<float>(count);
+            const float ky = isPerc ? (node.isDrumAdvanced ? (node.pos.y + 94.0f) : (node.pos.y + 80.0f)) : (node.pos.y + 68.0f);
             for (int i = 0; i < count; ++i)
             {
                 const float kx = node.pos.x + marginL + static_cast<float>(i) * slotW;
-                const float ky = node.pos.y + 68.0f;
                 list.push_back({ node.id, "direct",
                                  node.directParams[static_cast<size_t>(i)].key,
                                  { kx, ky, slotW, 84.0f } });
@@ -351,17 +352,40 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
         }
         else if (node.type == NodeType::InstrumentNode)
         {
+            const bool isPerc = (node.id.containsIgnoreCase("drum") || node.id.containsIgnoreCase("percuss") || node.id.containsIgnoreCase("kit"));
             // Presa Audio In (Cerchio)
             pins.push_back({ node.id, "audio:in", false, false, MiMOLookAndFeel::fountainInk,
-                             { node.pos.x, node.pos.y + 32.0f }, { -1.0f, 0.0f },
+                             { node.pos.x, node.pos.y + 28.0f }, { -1.0f, 0.0f },
                              MiMOLookAndFeel::PinShapeType::AudioCircle });
-            // Presa Trigger In dedicata (Rombo Arancio Fiamma)
-            pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
-                             { node.pos.x, node.pos.y + 58.0f }, { -1.0f, 0.0f },
-                             MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+
+            if (isPerc)
+            {
+                pins.push_back({ node.id, "trigger:kick", false, false, MiMOLookAndFeel::crayonCherry,
+                                 { node.pos.x, node.pos.y + 50.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                pins.push_back({ node.id, "trigger:snare", false, false, MiMOLookAndFeel::crayonPeach,
+                                 { node.pos.x, node.pos.y + 72.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                pins.push_back({ node.id, "trigger:hat", false, false, MiMOLookAndFeel::crayonCyan,
+                                 { node.pos.x, node.pos.y + 94.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                pins.push_back({ node.id, "trigger:tom", false, false, MiMOLookAndFeel::crayonMint,
+                                 { node.pos.x, node.pos.y + 116.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
+                                 { node.pos.x, node.pos.y + 138.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+            }
+            else
+            {
+                pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
+                                 { node.pos.x, node.pos.y + 58.0f }, { -1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+            }
+
             // Presa Audio Out (Cerchio)
             pins.push_back({ node.id, "audio:out", true, false, MiMOLookAndFeel::fountainInk,
-                             { node.pos.x + node.size.x, node.pos.y + 32.0f }, { 1.0f, 0.0f },
+                             { node.pos.x + node.size.x, node.pos.y + 28.0f }, { 1.0f, 0.0f },
                              MiMOLookAndFeel::PinShapeType::AudioCircle });
         }
         else if (node.type == NodeType::MasterOut)
@@ -497,12 +521,26 @@ CanvasNode CanvasGraphHelper::createInstrumentNodeFromCatalog(const CatalogItem&
     node.peakLevel = 0.0f;
 
     // Macro Flat Pastello dedicate per strumento V2
-    if (item.category.containsIgnoreCase("Percussion") || item.id.containsIgnoreCase("kit") || item.id.containsIgnoreCase("drum"))
+    if (item.category.containsIgnoreCase("Percussion") || item.id.containsIgnoreCase("kit") || item.id.containsIgnoreCase("drum") || item.id.containsIgnoreCase("percuss"))
+    {
+        node.label = "Percussioni";
+        node.subtitle = "4 Voci discrete con trigger dedicati";
+        node.size = { 330.0f, 185.0f };
+        node.isDrumAdvanced = false;
+        node.drumEditVoice = 0;
+        node.drumPresetIdx = 0;
+        node.directParams = {
+            { "vol",   "Volume", 0.0f, 1.5f, 1.0f, 1.0f, "",     true },
+            { "pitch", "Pitch", -12.0f, 12.0f, 0.0f, 0.0f, " st", true },
+            { "decay", "Decay",  0.25f, 2.5f, 1.0f, 1.0f, " x",  true }
+        };
+    }
+    else if (item.id.containsIgnoreCase("felt") || item.id.containsIgnoreCase("piano"))
     {
         node.directParams = {
-            { "vol",   "Volume",   0.0f, 1.5f, 1.0f, 1.0f, "",     true },
-            { "pitch", "Pitch",   -12.0f, 12.0f, 0.0f, 0.0f, " st", true },
-            { "decay", "Decay",   0.05f, 2.0f, 0.45f, 0.45f, " s",  true }
+            { "vol",    "Volume", 0.0f, 1.5f, 1.0f, 1.0f, "",     true },
+            { "cutoff", "Cutoff", 200.0f, 12000.0f, 3600.0f, 3600.0f, " Hz", true },
+            { "decay",  "Decay",  0.08f, 4.2f, 1.35f, 1.35f, " s",  true }
         };
     }
     else if (item.id.containsIgnoreCase("theremin"))
@@ -521,13 +559,13 @@ CanvasNode CanvasGraphHelper::createInstrumentNodeFromCatalog(const CatalogItem&
             { "cutoff", "Brilliance", 200.0f, 12000.0f, 4500.0f, 4500.0f, " Hz", true }
         };
     }
-    else // Synth VA / Felt Piano
+    else // Synth VA
     {
         node.directParams = {
             { "vol",    "Volume",    0.0f, 1.5f, 1.0f, 1.0f, "",     true },
             { "cutoff", "Cutoff",    40.0f, 14000.0f, 3200.0f, 3200.0f, " Hz", true },
             { "res",    "Risonanza", 0.1f, 10.0f, 1.4f, 1.4f, "",    true },
-            { "decay",  "Decay",     0.1f, 3.0f, 0.65f, 0.65f, " s",  true }
+            { "decay",  "Decay",     0.05f, 3.0f, 0.65f, 0.65f, " s",  true }
         };
     }
     return node;

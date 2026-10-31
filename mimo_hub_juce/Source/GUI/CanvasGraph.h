@@ -132,6 +132,9 @@ struct CanvasNode
     bool isIntegratedCamera = false;
     bool isBypassed = false;
     float peakLevel = 0.0f;
+    bool isDrumAdvanced = false;
+    int drumEditVoice = 0; // 0: Kick, 1: Snare, 2: Hat, 3: Tom
+    int drumPresetIdx = 0; // 0: 808 Studio, 1: Acoustic, 2: Electro, 3: Lofi
 };
 
 struct CanvasCable

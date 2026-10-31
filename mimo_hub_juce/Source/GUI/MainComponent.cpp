@@ -1657,7 +1657,7 @@ void MainComponent::timerCallback()
 void MainComponent::initCatalogs()
 {
     instrumentCatalog = {
-        { "ins-drum-analog",   "Percussioni",       "Kit Analogico",        "Faust", "4 voci percussive discrete", MiMOLookAndFeel::crayonCherry, false, {} },
+        { "ins-drum-analog",   "Percussioni",       "Percussioni",          "Faust", "4 voci discrete con sound design granulare", MiMOLookAndFeel::crayonCherry, false, {} },
         { "ins-theremin-3d",   "Sintesi Gestuale",  "Theremin 3D",          "Faust", "Controllo spaziale fluido",  MiMOLookAndFeel::crayonCyan,   false, {} },
         { "ins-karplus-pluck", "Corde & Lamelle",   "Kalimba & Pluck",      "Faust", "Waveguide fisico a corda",   MiMOLookAndFeel::crayonMint,   false, {} },
         { "ins-synth-va",      "Sintesi VA",        "Virtual Analog Synth", "Faust", "PolyBLEP lead & sub-bass",  MiMOLookAndFeel::crayonPeach,  false, {} },
@@ -4060,21 +4060,90 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
         // Nome strumento e categoria
         g.setColour(MiMOLookAndFeel::fountainInk);
         g.setFont(juce::Font(14.5f, juce::Font::bold));
-        g.drawText(node.label, static_cast<int>(box.getX() + 94), static_cast<int>(box.getY() + 8), static_cast<int>(box.getWidth() - 124), 18, juce::Justification::centredLeft);
+        g.drawText(node.label, static_cast<int>(box.getX() + 94), static_cast<int>(box.getY() + 8), static_cast<int>(box.getWidth() - 175), 18, juce::Justification::centredLeft);
+
+        const bool isPerc = (node.id.containsIgnoreCase("drum") || node.id.containsIgnoreCase("percuss"));
+        if (isPerc)
+        {
+            // Pulsante Mode Toggle [⚙ ARRANGIA] o [⚙ SEMPLICE]
+            const juce::Rectangle<float> modeBtn(box.getRight() - 145.0f, box.getY() + 8.0f, 90.0f, 18.0f);
+            MiMOLookAndFeel::drawSketchBox(g, modeBtn, seed + 102, node.isDrumAdvanced ? MiMOLookAndFeel::crayonOchre : MiMOLookAndFeel::paperBg, node.isDrumAdvanced ? 0.65f : 0.35f);
+            g.setColour(MiMOLookAndFeel::fountainInk);
+            g.setFont(juce::Font(9.0f, juce::Font::bold));
+            g.drawText(node.isDrumAdvanced ? "⚙ ARRANGIA" : "⚙ SEMPLICE", modeBtn.toNearestInt(), juce::Justification::centred);
+
+            if (node.isDrumAdvanced)
+            {
+                // Barra Selettore Preset
+                static const char* presetNames[] = { "808 Studio", "Acoustic Warm", "Electro Tight", "Lofi Dust" };
+                const juce::Rectangle<float> presetBar(box.getX() + 52.0f, box.getY() + 32.0f, box.getWidth() - 100.0f, 18.0f);
+                MiMOLookAndFeel::drawSketchBox(g, presetBar, seed + 103, MiMOLookAndFeel::crayonSage, 0.35f);
+                g.setColour(MiMOLookAndFeel::fountainInk);
+                g.setFont(juce::Font(9.5f, juce::Font::bold));
+                g.drawText("Preset: " + juce::String(presetNames[node.drumPresetIdx % 4]) + " ▾", presetBar.toNearestInt(), juce::Justification::centred);
+
+                // 4 Tab Voci: Cassa | Rullante | Hat | Tom
+                static const char* voiceNames[] = { "🥁 Cassa", "🎯 Rull.", "🥢 Hat", "🪘 Tom" };
+                const float tabW = (box.getWidth() - 100.0f) / 4.0f;
+                for (int v = 0; v < 4; ++v)
+                {
+                    const juce::Rectangle<float> tabBox(box.getX() + 52.0f + static_cast<float>(v) * tabW, box.getY() + 54.0f, tabW - 2.0f, 20.0f);
+                    const bool isSel = (node.drumEditVoice == v);
+                    MiMOLookAndFeel::drawSketchBox(g, tabBox, seed + 105 + v, isSel ? node.crayonColour : MiMOLookAndFeel::paperBg, isSel ? 0.70f : 0.25f);
+                    g.setColour(isSel ? MiMOLookAndFeel::fountainInk : MiMOLookAndFeel::inkMuted);
+                    g.setFont(juce::Font(9.0f, isSel ? juce::Font::bold : juce::Font::plain));
+                    g.drawText(voiceNames[v], tabBox.toNearestInt(), juce::Justification::centred);
+                }
+            }
+            else
+            {
+                g.setColour(MiMOLookAndFeel::inkMuted);
+                g.setFont(juce::Font(11.0f, juce::Font::plain));
+                g.drawText(node.subtitle, static_cast<int>(box.getX() + 14), static_cast<int>(box.getY() + 29), static_cast<int>(box.getWidth() - 50), 14, juce::Justification::centredLeft);
+
+                // 4 Pulsanti Quick-Test / Audition
+                static const char* voiceNames[] = { "🥁 Cassa", "🎯 Rullante", "🥢 Hat", "🪘 Tom" };
+                const float btnW = (box.getWidth() - 96.0f) / 4.0f;
+                for (int v = 0; v < 4; ++v)
+                {
+                    const juce::Rectangle<float> btnBox(box.getX() + 50.0f + static_cast<float>(v) * btnW, box.getY() + 48.0f, btnW - 3.0f, 22.0f);
+                    MiMOLookAndFeel::drawSketchBox(g, btnBox, seed + 105 + v, MiMOLookAndFeel::crayonOchre, 0.35f);
+                    g.setColour(MiMOLookAndFeel::fountainInk);
+                    g.setFont(juce::Font(9.5f, juce::Font::bold));
+                    g.drawText(voiceNames[v], btnBox.toNearestInt(), juce::Justification::centred);
+                }
+            }
+
+            // Etichette jacks percussioni dedicate lungo il bordo sinistro
+            g.setFont(juce::Font(8.0f, juce::Font::bold));
+            g.setColour(MiMOLookAndFeel::crayonCherry);
+            g.drawText("CASSA", static_cast<int>(box.getX() + 6), static_cast<int>(box.getY() + 44), 38, 12, juce::Justification::centredLeft);
+            g.setColour(MiMOLookAndFeel::crayonPeach);
+            g.drawText("RULL", static_cast<int>(box.getX() + 6), static_cast<int>(box.getY() + 66), 38, 12, juce::Justification::centredLeft);
+            g.setColour(MiMOLookAndFeel::crayonCyan);
+            g.drawText("HAT", static_cast<int>(box.getX() + 6), static_cast<int>(box.getY() + 88), 38, 12, juce::Justification::centredLeft);
+            g.setColour(MiMOLookAndFeel::crayonMint);
+            g.drawText("TOM", static_cast<int>(box.getX() + 6), static_cast<int>(box.getY() + 110), 38, 12, juce::Justification::centredLeft);
+            g.setColour(juce::Colour(0xFFFF7A18));
+            g.drawText("ALL", static_cast<int>(box.getX() + 6), static_cast<int>(box.getY() + 132), 38, 12, juce::Justification::centredLeft);
+        }
+        else
+        {
+            g.setColour(MiMOLookAndFeel::inkMuted);
+            g.setFont(juce::Font(11.0f, juce::Font::plain));
+            g.drawText(node.subtitle, static_cast<int>(box.getX() + 14), static_cast<int>(box.getY() + 30), static_cast<int>(box.getWidth() - 50), 15, juce::Justification::centredLeft);
+
+            // Etichette jacks standard
+            g.setFont(juce::Font(9.5f, juce::Font::bold));
+            g.setColour(MiMOLookAndFeel::inkMuted);
+            g.drawText("IN", static_cast<int>(box.getX() + 8), static_cast<int>(box.getY() + 26), 24, 14, juce::Justification::centredLeft);
+
+            g.setColour(juce::Colour(0xFFFF7A18));
+            g.drawText("TRIG", static_cast<int>(box.getX() + 8), static_cast<int>(box.getY() + 52), 32, 14, juce::Justification::centredLeft);
+        }
 
         g.setColour(MiMOLookAndFeel::inkMuted);
-        g.setFont(juce::Font(11.0f, juce::Font::plain));
-        g.drawText(node.subtitle, static_cast<int>(box.getX() + 14), static_cast<int>(box.getY() + 30), static_cast<int>(box.getWidth() - 50), 15, juce::Justification::centredLeft);
-
-        // Etichette jacks
         g.setFont(juce::Font(9.5f, juce::Font::bold));
-        g.setColour(MiMOLookAndFeel::inkMuted);
-        g.drawText("IN", static_cast<int>(box.getX() + 8), static_cast<int>(box.getY() + 26), 24, 14, juce::Justification::centredLeft);
-
-        g.setColour(juce::Colour(0xFFFF7A18));
-        g.drawText("TRIG", static_cast<int>(box.getX() + 8), static_cast<int>(box.getY() + 52), 32, 14, juce::Justification::centredLeft);
-
-        g.setColour(MiMOLookAndFeel::inkMuted);
         g.drawText("OUT", static_cast<int>(box.getRight() - 32), static_cast<int>(box.getY() + 26), 24, 14, juce::Justification::centredRight);
 
         // Manopole dello strumento
@@ -6918,6 +6987,125 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 selectedCableId.clear();
                 selectedPinNodeId.clear();
                 selectedPinId.clear();
+
+                const bool isPerc = (n.id.containsIgnoreCase("drum") || n.id.containsIgnoreCase("percuss"));
+                if (isPerc)
+                {
+                    // 1. Pulsante Mode Toggle [⚙ ARRANGIA]
+                    const juce::Rectangle<float> modeBtn(box.getRight() - 145.0f, box.getY() + 8.0f, 90.0f, 18.0f);
+                    if (modeBtn.contains(worldPt))
+                    {
+                        nodes[static_cast<size_t>(i)].isDrumAdvanced = !nodes[static_cast<size_t>(i)].isDrumAdvanced;
+                        nodes[static_cast<size_t>(i)].size.y = nodes[static_cast<size_t>(i)].isDrumAdvanced ? 245.0f : 185.0f;
+                        if (nodes[static_cast<size_t>(i)].isDrumAdvanced)
+                        {
+                            nodes[static_cast<size_t>(i)].directParams = {
+                                { "kick_pitch", "Kick Pitch", 35.0f, 120.0f, 44.0f, 44.0f, " Hz", true },
+                                { "kick_punch", "Punch",      0.2f, 2.0f, 0.85f, 0.85f, "",     true },
+                                { "kick_decay", "Decay",      0.05f, 1.4f, 0.85f, 0.85f, " s",  true },
+                                { "drive",      "Drive",      0.0f, 100.0f, 20.0f, 20.0f, " %", true }
+                            };
+                        }
+                        else
+                        {
+                            nodes[static_cast<size_t>(i)].directParams = {
+                                { "vol",   "Volume", 0.0f, 1.5f, 1.0f, 1.0f, "",     true },
+                                { "pitch", "Pitch", -12.0f, 12.0f, 0.0f, 0.0f, " st", true },
+                                { "decay", "Decay",  0.25f, 2.5f, 1.0f, 1.0f, " x",  true }
+                            };
+                        }
+                        syncAudioRoutes();
+                        repaint();
+                        return;
+                    }
+
+                    if (nodes[static_cast<size_t>(i)].isDrumAdvanced)
+                    {
+                        // 2. Barra Preset
+                        const juce::Rectangle<float> presetBar(box.getX() + 52.0f, box.getY() + 32.0f, box.getWidth() - 100.0f, 18.0f);
+                        if (presetBar.contains(worldPt))
+                        {
+                            nodes[static_cast<size_t>(i)].drumPresetIdx = (nodes[static_cast<size_t>(i)].drumPresetIdx + 1) % 4;
+                            audioEngine.setModulation(n.id, "preset", static_cast<float>(nodes[static_cast<size_t>(i)].drumPresetIdx) / 4.0f);
+                            audioEngine.triggerInstrument(n.id, 0, 0.95f);
+                            lastTriggerSourceCode.store(4);
+                            triggerPulseAlpha.store(1.0f);
+                            repaint();
+                            return;
+                        }
+
+                        // 3. Tab Voci
+                        const float tabW = (box.getWidth() - 100.0f) / 4.0f;
+                        for (int v = 0; v < 4; ++v)
+                        {
+                            const juce::Rectangle<float> tabBox(box.getX() + 52.0f + static_cast<float>(v) * tabW, box.getY() + 54.0f, tabW - 2.0f, 20.0f);
+                            if (tabBox.contains(worldPt))
+                            {
+                                nodes[static_cast<size_t>(i)].drumEditVoice = v;
+                                if (v == 0) // Kick
+                                {
+                                    nodes[static_cast<size_t>(i)].directParams = {
+                                        { "kick_pitch", "Kick Pitch", 35.0f, 120.0f, 44.0f, 44.0f, " Hz", true },
+                                        { "kick_punch", "Punch",      0.2f, 2.0f, 0.85f, 0.85f, "",     true },
+                                        { "kick_decay", "Decay",      0.05f, 1.4f, 0.85f, 0.85f, " s",  true },
+                                        { "drive",      "Drive",      0.0f, 100.0f, 20.0f, 20.0f, " %", true }
+                                    };
+                                }
+                                else if (v == 1) // Snare
+                                {
+                                    nodes[static_cast<size_t>(i)].directParams = {
+                                        { "snare_tone",   "Corpo",  110.0f, 380.0f, 180.0f, 180.0f, " Hz", true },
+                                        { "snare_snappy", "Snappy", 0.0f, 1.8f, 1.15f, 1.15f, "",     true },
+                                        { "snare_decay",  "Decay",  0.04f, 0.7f, 0.18f, 0.18f, " s",  true },
+                                        { "drive",        "Drive",  0.0f, 100.0f, 20.0f, 20.0f, " %", true }
+                                    };
+                                }
+                                else if (v == 2) // Hat
+                                {
+                                    nodes[static_cast<size_t>(i)].directParams = {
+                                        { "hat_cutoff", "Cutoff", 3200.0f, 12200.0f, 8200.0f, 8200.0f, " Hz", true },
+                                        { "hat_sizzle", "Sizzle", 0.6f, 3.8f, 1.4f, 1.4f, "",     true },
+                                        { "hat_decay",  "Decay",  0.02f, 0.5f, 0.045f, 0.045f, " s", true },
+                                        { "vol",        "Volume", 0.0f, 1.5f, 1.0f, 1.0f, "",     true }
+                                    };
+                                }
+                                else // Tom
+                                {
+                                    nodes[static_cast<size_t>(i)].directParams = {
+                                        { "tom_pitch", "Pitch",  60.0f, 260.0f, 82.0f, 82.0f, " Hz", true },
+                                        { "tom_decay", "Decay",  0.08f, 1.2f, 0.45f, 0.45f, " s",  true },
+                                        { "drive",     "Drive",  0.0f, 100.0f, 20.0f, 20.0f, " %", true },
+                                        { "vol",       "Volume", 0.0f, 1.5f, 1.0f, 1.0f, "",     true }
+                                    };
+                                }
+                                audioEngine.triggerInstrument(n.id, v, 0.95f);
+                                lastTriggerSourceCode.store(4);
+                                triggerPulseAlpha.store(1.0f);
+                                repaint();
+                                return;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // 4. Pulsanti Quick-Test / Audition
+                        const float btnW = (box.getWidth() - 96.0f) / 4.0f;
+                        for (int v = 0; v < 4; ++v)
+                        {
+                            const juce::Rectangle<float> btnBox(box.getX() + 50.0f + static_cast<float>(v) * btnW, box.getY() + 48.0f, btnW - 3.0f, 22.0f);
+                            if (btnBox.contains(worldPt))
+                            {
+                                audioEngine.triggerInstrument(n.id, v, 0.95f);
+                                lastTriggerSourceCode.store(4);
+                                triggerPulseAlpha.store(1.0f);
+                                repaint();
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                // Default trigger per altri strumenti
                 audioEngine.triggerInstrument(n.id, 0, 0.9f);
                 lastTriggerSourceCode.store(4);
                 triggerPulseAlpha.store(1.0f);
