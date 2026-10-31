@@ -49,26 +49,31 @@ Per garantire prestazioni estreme, costi ridotti e latenza zero, il carico compu
 
 ---
 
-## Sistema di Routing tramite Tag e Collaborazione Cross-Agent
-Quando l'utente inserisce uno o più Tag nel prompt, adotta le direttive del file corrispondente:
-*   `@HARDWARE` -> `01_AGENT_HARDWARE.md` (GPIO, Interrupts, I2C, Multiplexer, HAL su SBC).
-*   `@GUI` -> `02_AGENT_GUI.md` (Rendering Headless su Framebuffer SPI 3.5" della SBC).
-*   `@COMMS` -> `03_AGENT_COMMS.md` (Seriale USB, Protocollo Universale Modulo Occhio, Sync tra SBC, Smartphone e PC).
-*   `@LOGIC` -> `04_AGENT_LOGIC.md` (Macchina a Stati sulla SBC: STUDIO, LIVE e Workspace Custom).
-*   `@DATA` -> `05_AGENT_DATA.md` (JSON, Atomic Writes, configurazioni HAL e pacchetti `.mimo`).
-*   `@TESTER` -> `06_AGENT_TESTER.md` (Script diagnostici isolati per collaudo hardware e rete).
-*   `@DEBUG` -> `07_AGENT_DEBUG.md` (Analisi traceback, logging, debug elettronico e software).
-*   `@AUDIO` -> `08_AGENT_AUDIO.md` (Motore DSP Sonoro su PC/Mac dentro MiMO Hub, vincolato a `_DSP_REFERENCES/00_DSP_KNOWLEDGE_BASE.md`).
-*   `@HUB` -> `09_AGENT_HUB.md` (Interfaccia Micro-DAW, Web App per Smartphone "MiMO Eye" e Community Marketplace).
-*   `@DEVOPS` -> `10_AGENT_DEVOPS.md` (Versioning Git, Backup modulari per Core, Hub, Tests e Architettura).
-*   `@STANDARDS` -> `11_CODEBASE_STRUCTURE_STANDARDS.md` (Regole vincolanti sulla struttura dei 4 Pilastri e prevenzione monolite).
+## Sistema di Routing Autonomo e Collaborazione Cross-Agent
 
-> [!NOTE]
-> **Modalità Operativa Flessibile per l'Utente:**  
-> I tag sopra elencati sono pienamente operativi e possono essere usati quando si vuole indirizzare una richiesta a un dominio specifico.  
-> Tuttavia, **l'utente NON è obbligato a ricordarli o a scriverli nel prompt**: in assenza di tag espliciti, l'assistente agisce come coordinatore unico e applica autonomamente tutte le regole architetturali in base al contesto.
+### 1. Auto-Dispatcher degli Agenti per Intento (Zero Tag Overhead)
+L'ecosistema MiMO adotta un sistema di **Auto-Routing Autonomo per Intento**:
+* **Nessun obbligo di tag manuali:** Né l'utente né l'assistente devono forzatamente inserire `@TAG` manuali nei prompt per far collaborare le parti del sistema.
+* **Attivazione Contestuale Automatica:** In base al contenuto della richiesta o al task preso in carico da `ROADMAP_TODO.md`, l'assistente identifica autonomamente i domini coinvolti, consulta i documenti architetturali di competenza (`01` - `11`), ne rispetta i vincoli inviolabili e fa interagire i componenti con la massima sincronia.
 
-**Collaborazione Cross-Agent:** Se un prompt invoca più agenti (es. `@LOGIC @HUB`), mantieni separati il codice Python che gira sulla Rock Pi e il codice dell'applicazione Desktop, mostrando chiaramente il protocollo di scambio dati attraverso `@COMMS`.
+### 2. Mappa di Specializzazione dei Domini (Agenti di Riferimento)
+*   `@HARDWARE` (`01_AGENT_HARDWARE.md`): GPIO, Interrupts, I2C, Multiplexer PCA9548, HAL su SBC Linux, sensori piezo su Pico.
+*   `@GUI` (`02_AGENT_GUI.md`): Rendering headless e Dirty Rectangles sul display SPI 3.5" (480x320) della Rock Pi.
+*   `@COMMS` (`03_AGENT_COMMS.md`): Comunicazione seriale USB, protocolli OSC/WebSocket per Modulo Occhio, sync Rock Pi <-> PC.
+*   `@LOGIC` (`04_AGENT_LOGIC.md`): Macchina a stati, logiche di commutazione Studio/Live, gestione scene e routing comandi.
+*   `@DATA` (`05_AGENT_DATA.md`): Gestione formati `.mimo`, Preset Cards, file JSON atomici e mapping hardware `board_config.json`.
+*   `@TESTER` (`06_AGENT_TESTER.md`): Script di collaudo hardware, unit test e test di sincronizzazione telemetrica.
+*   `@DEBUG` (`07_AGENT_DEBUG.md`): Analisi traceback, isolamento glitch e profiling delle prestazioni.
+*   `@AUDIO` (`08_AGENT_AUDIO.md`): Motore DSP C++20 real-time in MiMO Hub, vincolato a `_DSP_REFERENCES/00_DSP_KNOWLEDGE_BASE.md`.
+*   `@HUB` (`09_AGENT_HUB.md`): Interfaccia grafica desktop in JUCE (Canvas V2, palette pastello, drag-and-drop, nodi).
+*   `@DEVOPS` (`10_AGENT_DEVOPS.md`): Gestione versionamento Git, build CMake/MSBuild e integrità dell'ambiente.
+*   `@STANDARDS` (`11_CODEBASE_STRUCTURE_STANDARDS.md`): Regole vincolanti sulla struttura dei 4 Pilastri e prevenzione monolite (< 1000 righe).
+
+### 3. Matrice Operativa di Collaborazione Cross-Agent
+Quando una funzionalità attraversa più livelli tecnologici, gli agenti collaborano secondo precise interfacce:
+1. **Hardware Embedded <-> Desktop GUI/DSP:** Il codice Python su Rock Pi interagisce con l'applicazione desktop C++/JUCE unicamente tramite i payload standardizzati definiti da `@COMMS` (OSC su UDP o pacchetti seriali JSON/MIDI). Non esistono dipendenze dirette tra il runtime Linux della SBC e il framework JUCE sul PC.
+2. **Audio DSP <-> Canvas GUI:** I processori in `Source/Audio/Modules/` (`@AUDIO`) sono disaccoppiati dalla GUI (`@HUB`). La GUI legge i peak level e invia valori normalizzati (0.0 - 1.0) tramite i metodi thread-safe di `AudioEngine` senza mai bloccare il thread audio real-time.
+3. **Computer Vision / Sensori <-> Strumenti/Parametri:** I worker dedicati in `Source/Devices/` (`@HARDWARE`) acquisiscono webcam/microfono e trasmettono dati normalizzati via atomici. Il canvas (`@HUB`) li mappa graficamente su cavi pastello e `AudioEngine` (`@AUDIO`) li applica ai processori.
 
 ---
 
