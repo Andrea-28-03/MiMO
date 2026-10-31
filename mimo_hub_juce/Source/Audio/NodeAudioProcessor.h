@@ -47,6 +47,9 @@ public:
 
     float getPeakLevel() const noexcept { return peakLevel.load(); }
 
+    // Valore di modulazione CV esposto dal nodo (0.0 - 1.0)
+    virtual float getModulationValue(const juce::String& /*pinId*/ = "mod:out") const noexcept { return getPeakLevel(); }
+
     // Wrapper completo che applica Bypass, Dry/Wet, Output Volume e calcola il Peak per il VU-Meter
     void processNode(float* left, float* right, int numSamples, bool isEffect = false)
     {

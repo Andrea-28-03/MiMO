@@ -26,6 +26,12 @@ void KnobParam::setFromNormalized(float norm)
 
 juce::String KnobParam::getFormattedValue() const
 {
+    if (key == "wave" || key == "shape")
+    {
+        const int s = juce::jlimit(0, 3, juce::roundToInt(value));
+        static const char* shapes[] = { "Sin", "Tri", "Saw", "S&H" };
+        return shapes[s];
+    }
     const float span = maxVal - minVal;
     if (span >= 100.0f)
         return juce::String(juce::roundToInt(value)) + unit;
@@ -401,6 +407,11 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
                 pins.push_back({ node.id, "mod:out", true, true, MiMOLookAndFeel::crayonPeach,
                                  { node.pos.x + node.size.x, node.pos.y + 36.0f }, { 1.0f, 0.0f },
                                  MiMOLookAndFeel::PinShapeType::ModulationTri });
+
+                // Clock Trigger Out (impulso ad ogni ciclo completato) -> Rombo Arancio Fiamma
+                pins.push_back({ node.id, "trigger:out", true, false, juce::Colour(0xFFFF7A18),
+                                 { node.pos.x + node.size.x, node.pos.y + 68.0f }, { 1.0f, 0.0f },
+                                 MiMOLookAndFeel::PinShapeType::TriggerDiamond });
             }
             else
             {
@@ -636,6 +647,7 @@ CanvasNode CanvasGraphHelper::createInstrumentNodeFromCatalog(const CatalogItem&
     }
     else if (item.id.containsIgnoreCase("lfo") || item.id.containsIgnoreCase("mod_lfo"))
     {
+        node.size = { 285.0f, 185.0f };
         node.directParams = {
             { "rate",  "Velocita", 0.05f, 20.0f, 1.5f, 1.5f, " Hz", true },
             { "wave",  "Forma",    0.0f, 3.0f, 0.0f, 0.0f, "",      true },

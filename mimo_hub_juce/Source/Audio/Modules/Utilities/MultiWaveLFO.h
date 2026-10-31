@@ -4,14 +4,15 @@
 #include "../../NodeAudioProcessor.h"
 #include <cmath>
 #include <random>
+#include <atomic>
 #include <algorithm>
 
 namespace mimo::dsp
 {
 
 // ============================================================================
-// Multi-Wave LFO Modulator (Standard V2)
-// Generatore ciclico di tensioni di controllo CV (0.0 .. 1.0)
+// Multi-Wave LFO Modulator & Clock Generator (Standard V2)
+// Generatore ciclico di tensioni di controllo CV (0.0 .. 1.0) e impulsi Clock Trigger
 // Forme d'onda: Sinusoidale, Triangolare, Rampa a dente di sega, Sample & Hold
 // ============================================================================
 class MultiWaveLFONode : public mimo::audio::NodeAudioProcessor
@@ -37,6 +38,7 @@ public:
         phase = 0.0f;
         prevPhase = 0.0f;
         smoothValue = 0.5f;
+        cycleTriggerPulse.store(false);
     }
 
     void setParameter(const juce::String& paramKey, float normalizedValue) override
@@ -71,7 +73,10 @@ public:
             if (phase >= 1.0f)
             {
                 phase -= 1.0f;
-                // Nuovo valore casuale per Sample & Hold al completamento del ciclo
+                // Impulso Clock Trigger ad ogni completamento di ciclo dell'LFO!
+                cycleTriggerPulse.store(true);
+
+                // Nuovo valore casuale per Sample & Hold
                 std::uniform_real_distribution<float> dist(0.0f, 1.0f);
                 currentShValue = dist(rng);
             }
@@ -98,13 +103,25 @@ public:
         }
 
         const float finalVal = 0.5f + (smoothValue - 0.5f) * depth;
-        lastOutput = juce::jlimit(0.0f, 1.0f, finalVal);
+        lastOutput.store(juce::jlimit(0.0f, 1.0f, finalVal));
         peakLevel.store(lastOutput.load());
+    }
+
+    // Lettura CV per modulazione verso altri nodi
+    float getModulationValue(const juce::String& /*pinId*/ = "mod:out") const noexcept override
+    {
+        return lastOutput.load();
     }
 
     float getModulationOutput() const noexcept
     {
         return lastOutput.load();
+    }
+
+    // Estrazione dell'impulso di trigger ciclo (consuma l'impulso in modo atomico)
+    bool pullCycleTrigger() noexcept
+    {
+        return cycleTriggerPulse.exchange(false);
     }
 
 private:
@@ -120,6 +137,7 @@ private:
     std::mt19937 rng;
 
     std::atomic<float> lastOutput { 0.5f };
+    std::atomic<bool> cycleTriggerPulse { false };
 };
 
 } // namespace mimo::dsp

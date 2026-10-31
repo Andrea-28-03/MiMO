@@ -95,6 +95,11 @@ public:
     }
 
     // Lettura CV thread-safe per modulazione verso altri nodi
+    float getModulationValue(const juce::String& /*pinId*/ = "mod:out") const noexcept override
+    {
+        return currentOutputValue.load();
+    }
+
     float getEnvelopeCV() const noexcept
     {
         return currentOutputValue.load();

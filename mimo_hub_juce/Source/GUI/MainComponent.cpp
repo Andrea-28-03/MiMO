@@ -1472,8 +1472,8 @@ void MainComponent::timerCallback()
             needsRepaint = true;
     }
 
-    // 6. Modulazione Reale Live tramite Cavi Pastello (Microfono & MiMO Eye/Webcam -> Strumenti ed Effetti nel Canvas)
-    if ((isMicRecording || isCameraInCanvas()) && dragMode != DragMode::TurnKnob && dragMode != DragMode::TurnInnerKnob)
+    // 6. Modulazione Reale Live tramite Cavi Pastello (Microfono, Webcam/Eye, LFO & Modulatori DSP -> Strumenti ed Effetti)
+    if (dragMode != DragMode::TurnKnob && dragMode != DragMode::TurnInnerKnob)
     {
         for (const auto& c : cables)
         {
@@ -1481,8 +1481,17 @@ void MainComponent::timerCallback()
                 continue;
 
             float modVal = -1.0f;
-            for (const auto& src : nodes)
+
+            // 1. Controlla prima se la sorgente e' un nodo DSP attivo nel grafo audio (LFO, Envelope Follower, ecc.)
+            const float dspMod = audioEngine.getNodeModulationValue(c.sourceNodeId, c.sourcePinId);
+            if (dspMod >= 0.0f)
             {
+                modVal = dspMod;
+            }
+            else
+            {
+                for (const auto& src : nodes)
+                {
                 if (src.id != c.sourceNodeId)
                     continue;
 
@@ -1566,6 +1575,7 @@ void MainComponent::timerCallback()
                 }
                 break;
             }
+            } // fine blocco else hardware
 
             if (modVal >= 0.0f)
             {
@@ -1592,11 +1602,11 @@ void MainComponent::timerCallback()
                             if (dp.key == paramKey)
                             {
                                 const float curNorm = dp.getNormalized();
-                                const float nextNorm = curNorm * 0.70f + modVal * 0.30f;
-                                if (std::abs(nextNorm - curNorm) > 0.004f)
+                                const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.70f + modVal * 0.30f);
+                                if (std::abs(nextNorm - curNorm) > 0.002f)
                                 {
                                     dp.setFromNormalized(nextNorm);
-                                    audioEngine.setModulation(dp.key, nextNorm);
+                                    audioEngine.setModulation(dst.id, dp.key, nextNorm);
                                     needsRepaint = true;
                                 }
                             }
@@ -1612,11 +1622,11 @@ void MainComponent::timerCallback()
                                 if (p.key == paramKey)
                                 {
                                     const float curNorm = p.getNormalized();
-                                    const float nextNorm = curNorm * 0.70f + modVal * 0.30f;
-                                    if (std::abs(nextNorm - curNorm) > 0.004f)
+                                    const float nextNorm = (dspMod >= 0.0f) ? modVal : (curNorm * 0.70f + modVal * 0.30f);
+                                    if (std::abs(nextNorm - curNorm) > 0.002f)
                                     {
                                         p.setFromNormalized(nextNorm);
-                                        audioEngine.setModulation(p.key, nextNorm);
+                                        audioEngine.setModulation(dst.id, p.key, nextNorm);
                                         needsRepaint = true;
                                     }
                                 }
@@ -1814,10 +1824,13 @@ void MainComponent::syncAudioRoutes()
         mimo::audio::NodeGraphDescriptor d;
         d.id = n.id;
         d.label = n.label;
+        d.category = n.subtitle;
         d.engine = n.instrumentEngine;
+        d.isUtility = n.id.startsWithIgnoreCase("ut-") || n.id.startsWithIgnoreCase("mod-") ||
+                      n.id.containsIgnoreCase("lfo") || n.id.containsIgnoreCase("follower") ||
+                      n.id.containsIgnoreCase("scale") || n.id.containsIgnoreCase("looper");
         d.isEffect = (n.type == NodeType::NestedEffect);
-        d.isInstrument = (n.type == NodeType::InstrumentNode || n.hasInstrument);
-        d.isUtility = n.id.startsWithIgnoreCase("ut-") || n.id.startsWithIgnoreCase("mod-");
+        d.isInstrument = !d.isUtility && !d.isEffect && (n.type == NodeType::InstrumentNode || n.hasInstrument);
         d.isBypassed = n.isBypassed;
         descriptors.push_back(d);
     }
@@ -4144,13 +4157,19 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
             g.fillRoundedRectangle(fill, 2.0f);
         }
 
-        // Badge pillola pastello "STRUMENTO"
+        const bool isLfo = (node.id.containsIgnoreCase("lfo") || node.id.containsIgnoreCase("mod_lfo"));
+        const bool isFollower = (node.id.containsIgnoreCase("follower") || node.id.containsIgnoreCase("env"));
+        const bool isScale = (node.id.containsIgnoreCase("scale") || node.id.containsIgnoreCase("quantiz"));
+        const bool isLooper = (node.id.containsIgnoreCase("looper") || node.id.containsIgnoreCase("tape_loop"));
+        const bool isUtilityNode = isLfo || isFollower || isScale || isLooper || node.id.startsWithIgnoreCase("ut-") || node.id.startsWithIgnoreCase("mod-");
+
+        // Badge pillola pastello
         juce::Rectangle<float> badge(box.getX() + 12.0f, box.getY() + 8.0f, 75.0f, 18.0f);
         g.setColour(node.crayonColour.withAlpha(0.22f));
         g.fillRoundedRectangle(badge, 4.0f);
         g.setColour(node.crayonColour);
         g.setFont(juce::Font(9.5f, juce::Font::bold));
-        g.drawText("STRUMENTO", badge.toNearestInt(), juce::Justification::centred);
+        g.drawText(isLfo ? "LFO CV" : (isUtilityNode ? "UTILITY" : "STRUMENTO"), badge.toNearestInt(), juce::Justification::centred);
 
         // Nome strumento e categoria
         g.setColour(MiMOLookAndFeel::fountainInk);
@@ -4222,6 +4241,21 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
             g.setColour(juce::Colour(0xFFFF7A18));
             g.drawText("ALL", static_cast<int>(box.getX() + 6), static_cast<int>(box.getY() + 132), 38, 12, juce::Justification::centredLeft);
         }
+        else if (isLfo)
+        {
+            g.setColour(MiMOLookAndFeel::inkMuted);
+            g.setFont(juce::Font(11.0f, juce::Font::plain));
+            g.drawText(node.subtitle, static_cast<int>(box.getX() + 14), static_cast<int>(box.getY() + 30), static_cast<int>(box.getWidth() - 50), 15, juce::Justification::centredLeft);
+
+            // Jack CV Out (Triangolo a destra, y + 36)
+            g.setFont(juce::Font(9.5f, juce::Font::bold));
+            g.setColour(MiMOLookAndFeel::crayonPeach);
+            g.drawText("CV", static_cast<int>(box.getRight() - 36), static_cast<int>(box.getY() + 29), 28, 14, juce::Justification::centredRight);
+
+            // Jack Clock Trigger Out (Rombo a destra, y + 68)
+            g.setColour(juce::Colour(0xFFFF7A18));
+            g.drawText("TRIG", static_cast<int>(box.getRight() - 40), static_cast<int>(box.getY() + 61), 32, 14, juce::Justification::centredRight);
+        }
         else
         {
             g.setColour(MiMOLookAndFeel::inkMuted);
@@ -4235,11 +4269,11 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
 
             g.setColour(juce::Colour(0xFFFF7A18));
             g.drawText("TRIG", static_cast<int>(box.getX() + 8), static_cast<int>(box.getY() + 52), 32, 14, juce::Justification::centredLeft);
-        }
 
-        g.setColour(MiMOLookAndFeel::inkMuted);
-        g.setFont(juce::Font(9.5f, juce::Font::bold));
-        g.drawText("OUT", static_cast<int>(box.getRight() - 32), static_cast<int>(box.getY() + 26), 24, 14, juce::Justification::centredRight);
+            g.setColour(MiMOLookAndFeel::inkMuted);
+            g.setFont(juce::Font(9.5f, juce::Font::bold));
+            g.drawText("OUT", static_cast<int>(box.getRight() - 32), static_cast<int>(box.getY() + 26), 24, 14, juce::Justification::centredRight);
+        }
 
         // Manopole dello strumento
         for (const auto& kh : collectCanvasKnobs())

@@ -167,6 +167,9 @@ public:
             if (existingNode != nullptr)
             {
                 // Riutilizza il nodo esistente per preservare lo stato dei buffer/code
+                existingNode->isInstrument = d.isInstrument;
+                existingNode->isEffect = d.isEffect;
+                existingNode->isUtility = d.isUtility;
                 existingNode->isBypassed.store(d.isBypassed);
                 if (existingNode->processor != nullptr)
                     existingNode->processor->setBypass(d.isBypassed);
@@ -277,6 +280,21 @@ public:
                 return node->realtimePeak.load();
         }
         return 0.0f;
+    }
+
+    float getNodeModulationValue(const juce::String& nodeId, const juce::String& pinId = "mod:out") const
+    {
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        for (const auto& node : graphNodes)
+        {
+            if (node->id == nodeId)
+            {
+                if (node->processor != nullptr)
+                    return node->processor->getModulationValue(pinId);
+                return node->realtimePeak.load();
+            }
+        }
+        return -1.0f;
     }
 
     // ========================================================================
@@ -421,18 +439,26 @@ public:
     {
         const float v = juce::jlimit(0.0f, 1.0f, valueNorm);
 
-        // Controllo diretto del volume o dry/wet se la manopola è "vol" o "mix"
-        if (paramKey == "vol" || paramKey == "volume")
-            setNodeVolume(nodeId, v * 1.5f);
-        else if (paramKey == "mix" || paramKey == "drywet")
-            setNodeDryWet(nodeId, v);
-
         const std::lock_guard<std::mutex> lock(graphMutex);
         for (auto& node : graphNodes)
         {
-            if (node->id == nodeId && node->processor != nullptr)
+            if (node->id == nodeId)
             {
-                node->processor->setParameter(paramKey, v);
+                if (paramKey == "vol" || paramKey == "volume")
+                {
+                    node->outputGain.store(v * 1.5f);
+                    if (node->processor != nullptr)
+                        node->processor->setOutputGain(v * 1.5f);
+                }
+                else if (paramKey == "mix" || paramKey == "drywet")
+                {
+                    node->dryWet.store(v);
+                    if (node->processor != nullptr)
+                        node->processor->setDryWet(v);
+                }
+
+                if (node->processor != nullptr)
+                    node->processor->setParameter(paramKey, v);
                 return;
             }
         }
@@ -584,6 +610,61 @@ public:
             }
         }
 
+        // 2b. Rendering dei Nodi di Utilità & Modulatori CV (Multi-Wave LFO, Envelope Follower, Looper)
+        for (auto& node : graphNodes)
+        {
+            if (node->isUtility && node->processor != nullptr)
+            {
+                juce::FloatVectorOperations::clear(node->bufferL.data(), safeSamples);
+                juce::FloatVectorOperations::clear(node->bufferR.data(), safeSamples);
+
+                // Somma eventuali ingressi audio (es. Envelope Follower o Looper)
+                for (const auto& r : activeRoutes)
+                {
+                    if (r.targetNodeId == node->id && (r.targetPinId == "audio:in" || !r.isModulation))
+                    {
+                        for (auto& src : graphNodes)
+                        {
+                            if (src->id == r.sourceNodeId)
+                            {
+                                juce::FloatVectorOperations::add(node->bufferL.data(), src->bufferL.data(), safeSamples);
+                                juce::FloatVectorOperations::add(node->bufferR.data(), src->bufferR.data(), safeSamples);
+                            }
+                        }
+                    }
+                }
+
+                node->processor->processNode(node->bufferL.data(), node->bufferR.data(), safeSamples, true);
+                node->realtimePeak.store(node->processor->getPeakLevel());
+
+                // Controllo Trigger di fine ciclo LFO (Clock Trigger Out)
+                if (auto* lfo = dynamic_cast<dsp::MultiWaveLFONode*>(node->processor.get()))
+                {
+                    if (lfo->pullCycleTrigger())
+                    {
+                        for (const auto& r : activeRoutes)
+                        {
+                            if (r.sourceNodeId == node->id && (r.sourcePinId == "trigger:out" || r.sourcePinId.startsWith("trigger:")))
+                            {
+                                int voiceIdx = 0;
+                                if (r.targetPinId == "trigger:snare") voiceIdx = 1;
+                                else if (r.targetPinId == "trigger:hat") voiceIdx = 2;
+                                else if (r.targetPinId == "trigger:tom") voiceIdx = 3;
+
+                                for (auto& target : graphNodes)
+                                {
+                                    if (target->id == r.targetNodeId && target->processor != nullptr)
+                                    {
+                                        target->processor->trigger(voiceIdx, 0.9f);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 3. Elaborazione della Catena di Effetti lungo i cavi del Canvas
         for (auto& node : graphNodes)
         {
@@ -620,7 +701,11 @@ public:
         int nodesSummedToMaster = 0;
         for (auto& node : graphNodes)
         {
-            if (!node->isInstrument && !node->isEffect)
+            if (!node->isInstrument && !node->isEffect && !node->isUtility)
+                continue;
+
+            // Se è un LFO, è puramente CV / Trigger e non fluisce sul master audio
+            if (node->isUtility && dynamic_cast<dsp::MultiWaveLFONode*>(node->processor.get()) != nullptr)
                 continue;
 
             bool hasRouteToMaster = false;
