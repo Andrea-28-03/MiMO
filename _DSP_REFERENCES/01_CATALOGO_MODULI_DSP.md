@@ -237,6 +237,7 @@ I seguenti moduli rimangono registrati nel catalogo per le iterazioni successive
 | `ins-drum-analog` | Kit Percussivo Analogico | Strumento | **Alta (P1)** | `[✅ Completato V2]` | Sì (Output Level + Voice Vol) |
 | `ins-theremin-3d` | Theremin 3D Gestuale | Strumento | **Alta (P1)** | `[✅ Completato V2]` | Sì (Output Level) |
 | `ins-karplus-pluck`| Kalimba & Felt Pluck | Strumento | **Alta (P1)** | `[✅ Completato V2]` | Sì (Output Level) |
+| `ins-felt-piano`   | Piano Feltro Naturale   | Strumento | **Alta (P1)** | `[✅ Completato V2]` | Sì (Output Level + Decay Dinamico) |
 | `ins-synth-va` | Virtual Analog Lead/Bass | Strumento | Media | `[✅ Completato V2]` | Sì (Output Level) |
 | `fx-saturazione-soft`| Saturazione Nastro | Effetto | **Alta (P1)** | `[✅ Completato V2]` | Sì (Dry/Wet + Output Level) |
 | `fx-filtro-svf` | Filtro ZDF SVF Stereo | Effetto | **Alta (P1)** | `[✅ Completato V2]` | Sì (Dry/Wet + Output Level) |
