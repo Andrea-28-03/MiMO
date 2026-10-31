@@ -458,24 +458,50 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
     {
         if (kh.worldBounds.contains(worldPt))
         {
-            comp.dragMode = MainComponent::DragMode::TurnKnob;
-            comp.draggedNodeId = kh.nodeId;
-            comp.draggedParamKey = kh.paramKey;
-            comp.dragStartMouse = pt;
-
             for (const auto& n : comp.nodes)
             {
-                if (n.id == kh.nodeId)
+                if (n.id != kh.nodeId)
+                    continue;
+
+                if (n.type == NodeType::NestedEffect)
+                {
+                    for (const auto& b : n.innerBlocks)
+                    {
+                        if (b.id != kh.blockId)
+                            continue;
+
+                        for (const auto& p : b.params)
+                        {
+                            if (p.key == kh.paramKey)
+                            {
+                                comp.dragMode = MainComponent::DragMode::TurnKnob;
+                                comp.draggedNodeId = n.id;
+                                comp.draggedBlockId = b.id;
+                                comp.draggedParamKey = p.key;
+                                comp.dragStartMouse = pt;
+                                comp.dragStartKnobNorm = p.getNormalized();
+                                comp.repaint();
+                                return;
+                            }
+                        }
+                    }
+                }
+                else
                 {
                     for (const auto& p : n.directParams)
                     {
                         if (p.key == kh.paramKey)
                         {
+                            comp.dragMode = MainComponent::DragMode::TurnKnob;
+                            comp.draggedNodeId = n.id;
+                            comp.draggedBlockId = "direct";
+                            comp.draggedParamKey = p.key;
+                            comp.dragStartMouse = pt;
                             comp.dragStartKnobNorm = p.getNormalized();
-                            break;
+                            comp.repaint();
+                            return;
                         }
                     }
-                    break;
                 }
             }
             return;
@@ -543,10 +569,13 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
             comp.selectedCableId.clear();
             comp.syncAudioRoutes();
 
-            comp.dragMode = MainComponent::DragMode::MoveNode;
-            comp.draggedNodeId = it->id;
-            comp.dragStartMouse = pt;
-            comp.dragStartOffset = it->pos;
+            if (it->type != NodeType::RockPiCentral)
+            {
+                comp.dragMode = MainComponent::DragMode::MoveNode;
+                comp.draggedNodeId = it->id;
+                comp.dragStartMouse = worldPt;
+                comp.dragStartOffset = it->pos;
+            }
             comp.repaint();
             return;
         }

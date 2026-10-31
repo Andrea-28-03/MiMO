@@ -791,6 +791,46 @@ bool SidebarComponent::handleMouseDown(MainComponent& comp, const juce::Point<fl
                 return true;
             }
         }
+
+        const auto integBody = getIntegratedBodyBounds(w, h, comp.sidebarScrollY, comp.cameraSettingsOpen);
+        const float cardX = integBody.getX() + 8.0f;
+        const float cardW = integBody.getWidth() - 16.0f;
+
+        // Clic sulla card della Batteria Hardware -> Trascina Modulo Batteria nel Canvas!
+        const juce::Rectangle<float> drumCard(cardX, integBody.getY() + 6.0f, cardW, 44.0f);
+        if (drumCard.contains(pt))
+        {
+            comp.draggedCatalogItem = { "hw-drum", "Hardware P1", "Modulo Batteria", "Sensori Piezo", "Trigger piezo I2C", MiMOLookAndFeel::crayonSage, false, false, {} };
+            comp.dragMode = MainComponent::DragMode::DragSidebarItem;
+            comp.currentMousePos = pt;
+            comp.repaint();
+            return true;
+        }
+
+        // Clic sulla card del Microfono -> Trascina Microfono nel Canvas!
+        const juce::Rectangle<float> micCard(cardX, integBody.getY() + 54.0f, cardW, 44.0f);
+        if (micCard.contains(pt))
+        {
+            comp.draggedCatalogItem = { "integrated-mic", "Integrato", "Microfono PC (Batteria)", "Laptop", "Trigger audio da mic", MiMOLookAndFeel::crayonOchre, false, true, {} };
+            comp.dragMode = MainComponent::DragMode::DragSidebarItem;
+            comp.currentMousePos = pt;
+            comp.repaint();
+            return true;
+        }
+
+        // Clic sulla card della Webcam -> Trascina Webcam nel Canvas!
+        const juce::Rectangle<float> camCard(cardX, integBody.getY() + 102.0f, cardW, comp.cameraSettingsOpen ? 186.0f : 44.0f);
+        if (camCard.contains(pt))
+        {
+            comp.draggedCatalogItem = { "integrated-webcam", "Integrato", "Webcam PC (Occhio)", "Laptop", "Sensore ottico webcam", MiMOLookAndFeel::crayonCyan, false, true, {} };
+            comp.dragMode = MainComponent::DragMode::DragSidebarItem;
+            comp.currentMousePos = pt;
+            comp.repaint();
+            return true;
+        }
+
+        if (integBody.contains(pt))
+            return true;
     }
 
     // 6. Header e Catalogo Strumenti

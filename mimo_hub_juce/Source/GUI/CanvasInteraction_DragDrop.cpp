@@ -309,103 +309,113 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
     }
     else if (comp.dragMode == MainComponent::DragMode::DragSidebarItem)
     {
-        if (!comp.draggedCatalogItem.isEffect)
+        const float sidebarThreshold = static_cast<float>(comp.getWidth()) - (comp.sidebarOpen ? 308.0f : 44.0f);
+        if (pt.x < sidebarThreshold)
         {
-            if (comp.draggedCatalogItem.id == "hw-drum")
+            if (!comp.draggedCatalogItem.isEffect)
             {
-                if (!comp.isDrumInCanvas())
-                    comp.toggleDrumInCanvas();
-
-                for (auto& n : comp.nodes)
+                if (comp.draggedCatalogItem.id == "hw-drum")
                 {
-                    if (n.id == "hw-drum")
+                    if (!comp.isDrumInCanvas())
+                        comp.toggleDrumInCanvas();
+
+                    for (auto& n : comp.nodes)
                     {
-                        n.pos = worldPt - n.size * 0.5f;
-                        break;
+                        if (n.id == "hw-drum")
+                        {
+                            n.pos = worldPt - n.size * 0.5f;
+                            n.targetPos = n.pos;
+                            n.isAnimatingPos = false;
+                            break;
+                        }
                     }
                 }
-            }
-            else if (comp.draggedCatalogItem.id == "integrated-mic")
-            {
-                if (!comp.isMicInCanvas())
-                    comp.toggleMicInCanvas();
-
-                for (auto& n : comp.nodes)
+                else if (comp.draggedCatalogItem.id == "integrated-mic")
                 {
-                    if (n.isIntegratedMic || n.id == "hw-mic")
+                    if (!comp.isMicInCanvas())
+                        comp.toggleMicInCanvas();
+
+                    for (auto& n : comp.nodes)
                     {
-                        n.pos = worldPt - n.size * 0.5f;
-                        break;
+                        if (n.isIntegratedMic || n.id == "hw-mic")
+                        {
+                            n.pos = worldPt - n.size * 0.5f;
+                            n.targetPos = n.pos;
+                            n.isAnimatingPos = false;
+                            break;
+                        }
                     }
                 }
-            }
-            else if (comp.draggedCatalogItem.id == "integrated-webcam" || comp.draggedCatalogItem.id == "integrated-cam")
-            {
-                if (!comp.isCameraInCanvas())
-                    comp.toggleCameraInCanvas();
-
-                for (auto& n : comp.nodes)
+                else if (comp.draggedCatalogItem.id == "integrated-webcam" || comp.draggedCatalogItem.id == "integrated-cam")
                 {
-                    if (n.isIntegratedCamera || n.id == "hw-webcam" || n.id == "hw-eye")
+                    if (!comp.isCameraInCanvas())
+                        comp.toggleCameraInCanvas();
+
+                    for (auto& n : comp.nodes)
                     {
-                        n.pos = worldPt - n.size * 0.5f;
-                        break;
+                        if (n.isIntegratedCamera || n.id == "hw-webcam" || n.id == "hw-eye")
+                        {
+                            n.pos = worldPt - n.size * 0.5f;
+                            n.targetPos = n.pos;
+                            n.isAnimatingPos = false;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    const juce::String targetHwId = comp.findHwModuleAt(worldPt);
+                    if (targetHwId.isNotEmpty())
+                    {
+                        for (auto& n : comp.nodes)
+                        {
+                            if (n.id == targetHwId)
+                            {
+                                n.hasInstrument = true;
+                                n.instrumentName = comp.draggedCatalogItem.name;
+                                n.instrumentEngine = comp.draggedCatalogItem.engine;
+                                n.crayonColour = comp.draggedCatalogItem.colour;
+                                break;
+                            }
+                        }
+                        comp.syncAudioRoutes();
+                    }
+                    else
+                    {
+                        auto instNode = comp.createInstrumentNodeFromCatalog(comp.draggedCatalogItem, worldPt - juce::Point<float>{ 115.0f, 60.0f }, comp.fxCounter++);
+                        comp.nodes.push_back(instNode);
+
+                        for (const auto& n : comp.nodes)
+                        {
+                            if (n.type == NodeType::MasterOut)
+                            {
+                                comp.cables.push_back({
+                                    "c-" + juce::String(juce::Time::getMillisecondCounter()) + "-" + juce::String(rand() % 1000),
+                                    instNode.id, "audio:out",
+                                    n.id, "audio:in",
+                                    false, MiMOLookAndFeel::fountainInk, {}
+                                });
+                                break;
+                            }
+                        }
+                        comp.syncAudioRoutes();
                     }
                 }
             }
             else
             {
-                const juce::String targetHwId = comp.findHwModuleAt(worldPt);
-                if (targetHwId.isNotEmpty())
+                juce::String cableId = comp.findAudioCableNear(worldPt, 45.0f);
+                if (cableId.isNotEmpty())
                 {
-                    for (auto& n : comp.nodes)
-                    {
-                        if (n.id == targetHwId)
-                        {
-                            n.hasInstrument = true;
-                            n.instrumentName = comp.draggedCatalogItem.name;
-                            n.instrumentEngine = comp.draggedCatalogItem.engine;
-                            n.crayonColour = comp.draggedCatalogItem.colour;
-                            break;
-                        }
-                    }
+                    comp.insertEffectOnCable(comp.draggedCatalogItem, cableId, worldPt);
                     comp.syncAudioRoutes();
                 }
                 else
                 {
-                    auto instNode = comp.createInstrumentNodeFromCatalog(comp.draggedCatalogItem, worldPt - juce::Point<float>{ 115.0f, 60.0f }, comp.fxCounter++);
-                    comp.nodes.push_back(instNode);
-
-                    for (const auto& n : comp.nodes)
-                    {
-                        if (n.type == NodeType::MasterOut)
-                        {
-                            comp.cables.push_back({
-                                "c-" + juce::String(juce::Time::getMillisecondCounter()) + "-" + juce::String(rand() % 1000),
-                                instNode.id, "audio:out",
-                                n.id, "audio:in",
-                                false, MiMOLookAndFeel::fountainInk, {}
-                            });
-                            break;
-                        }
-                    }
+                    auto fxNode = comp.createFxNodeFromCatalog(comp.draggedCatalogItem, worldPt - juce::Point<float>{ 130.0f, 80.0f }, comp.fxCounter++, false);
+                    comp.nodes.push_back(fxNode);
                     comp.syncAudioRoutes();
                 }
-            }
-        }
-        else
-        {
-            juce::String cableId = comp.findAudioCableNear(worldPt, 45.0f);
-            if (cableId.isNotEmpty())
-            {
-                comp.insertEffectOnCable(comp.draggedCatalogItem, cableId, worldPt);
-                comp.syncAudioRoutes();
-            }
-            else
-            {
-                auto fxNode = comp.createFxNodeFromCatalog(comp.draggedCatalogItem, worldPt - juce::Point<float>{ 130.0f, 80.0f }, comp.fxCounter++, false);
-                comp.nodes.push_back(fxNode);
-                comp.syncAudioRoutes();
             }
         }
         comp.hoveredHwNodeId.clear();

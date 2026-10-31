@@ -675,28 +675,68 @@ void CanvasRenderer::paintNestedEffectNode(juce::Graphics& g, MainComponent& com
         if (kh.nodeId != node.id)
             continue;
 
-        for (const auto& p : node.directParams)
+        bool found = false;
+        for (const auto& b : node.innerBlocks)
         {
-            if (p.key != kh.paramKey)
+            if (b.id != kh.blockId)
                 continue;
 
-            bool isModulated = false;
-            juce::Colour modCol = MiMOLookAndFeel::crayonCyan;
-            for (const auto& c : comp.cables)
+            for (const auto& p : b.params)
             {
-                if (c.targetNodeId == node.id && c.targetPinId == ("mod:" + p.key))
-                {
-                    isModulated = true;
-                    modCol = c.colour;
-                    break;
-                }
-            }
+                if (p.key != kh.paramKey)
+                    continue;
 
-            MiMOLookAndFeel::drawCrayonKnob(
-                g, kh.worldBounds, p.getNormalized(), node.crayonColour,
-                p.label, p.getFormattedValue(),
-                (node.id + p.key).hashCode(), isModulated, modCol
-            );
+                bool isModulated = false;
+                juce::Colour modCol = MiMOLookAndFeel::crayonOchre;
+                const juce::String targetPin = "param:" + b.id + "." + p.key;
+                for (const auto& c : comp.cables)
+                {
+                    if (c.targetNodeId == node.id && (c.targetPinId == targetPin || c.targetPinId == ("mod:" + p.key)))
+                    {
+                        isModulated = true;
+                        modCol = c.colour;
+                        break;
+                    }
+                }
+
+                MiMOLookAndFeel::drawCrayonKnob(
+                    g, kh.worldBounds, p.getNormalized(), node.crayonColour,
+                    p.label, p.getFormattedValue(),
+                    (node.id + p.key).hashCode(), isModulated, modCol
+                );
+                found = true;
+                break;
+            }
+            if (found)
+                break;
+        }
+
+        if (!found)
+        {
+            for (const auto& p : node.directParams)
+            {
+                if (p.key != kh.paramKey)
+                    continue;
+
+                bool isModulated = false;
+                juce::Colour modCol = MiMOLookAndFeel::crayonCyan;
+                for (const auto& c : comp.cables)
+                {
+                    if (c.targetNodeId == node.id && c.targetPinId == ("mod:" + p.key))
+                    {
+                        isModulated = true;
+                        modCol = c.colour;
+                        break;
+                    }
+                }
+
+                MiMOLookAndFeel::drawCrayonKnob(
+                    g, kh.worldBounds, p.getNormalized(), node.crayonColour,
+                    p.label, p.getFormattedValue(),
+                    (node.id + p.key).hashCode(), isModulated, modCol
+                );
+                break;
+            }
         }
     }
 }

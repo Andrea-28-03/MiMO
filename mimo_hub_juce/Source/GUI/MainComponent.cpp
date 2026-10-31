@@ -627,18 +627,20 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 return;
         }
 
-        if (sidebarOpen && e.position.x >= getWidth() - 300)
+        if (sidebarOpen)
         {
             if (SidebarComponent::handleMouseDown(*this, e.position, e))
+                return;
+            if (e.position.x >= static_cast<float>(getWidth() - 308))
                 return;
         }
-        else if (SidebarComponent::getSidebarToggleBounds(getWidth(), getHeight(), sidebarOpen).contains(e.position)
-              || SidebarComponent::getCameraButtonBounds(getWidth(), getHeight(), sidebarOpen).contains(e.position)
-              || SidebarComponent::getSettingsButtonBounds(getWidth(), getHeight(), sidebarOpen).contains(e.position)
-              || (settingsOpen && SidebarComponent::getSettingsPanelBounds(getWidth(), getHeight()).contains(e.position)))
+        else
         {
-            if (SidebarComponent::handleMouseDown(*this, e.position, e))
-                return;
+            if (SidebarComponent::getSidebarToggleBounds(getWidth(), getHeight(), false).contains(e.position))
+            {
+                if (SidebarComponent::handleMouseDown(*this, e.position, e))
+                    return;
+            }
         }
 
         CanvasInteraction::handleMouseDown(*this, e);
@@ -648,7 +650,7 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
 void MainComponent::mouseDrag(const juce::MouseEvent& e)
 {
     currentMousePos = e.position;
-    if (sidebarOpen && dragMode == DragMode::None && e.position.x >= getWidth() - 300)
+    if (sidebarOpen && dragMode == DragMode::None && e.position.x >= static_cast<float>(getWidth() - 308))
         SidebarComponent::handleMouseDrag(*this, e.position);
     else
         CanvasInteraction::handleMouseDrag(*this, e);
@@ -667,7 +669,7 @@ void MainComponent::mouseDoubleClick(const juce::MouseEvent& e)
 
 void MainComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
-    if (sidebarOpen && e.position.x >= getWidth() - 300)
+    if (sidebarOpen && e.position.x >= static_cast<float>(getWidth() - 308))
         SidebarComponent::handleMouseWheel(*this, e, wheel);
     else
         CanvasInteraction::handleMouseWheelMove(*this, e, wheel);
