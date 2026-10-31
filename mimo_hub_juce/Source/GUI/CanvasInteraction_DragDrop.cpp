@@ -235,13 +235,83 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
         if (bestPin != nullptr)
         {
             const auto& pin = *bestPin;
-            const auto& srcNode = comp.cableSourceIsOutput ? comp.cableSourceNodeId : pin.nodeId;
-            const auto& srcPin  = comp.cableSourceIsOutput ? comp.cableSourcePinId  : pin.pinId;
-            const auto& dstNode = comp.cableSourceIsOutput ? pin.nodeId        : comp.cableSourceNodeId;
-            const auto& dstPin  = comp.cableSourceIsOutput ? pin.pinId         : comp.cableSourcePinId;
+            auto srcNode = comp.cableSourceIsOutput ? comp.cableSourceNodeId : pin.nodeId;
+            auto srcPin  = comp.cableSourceIsOutput ? comp.cableSourcePinId  : pin.pinId;
+            auto dstNode = comp.cableSourceIsOutput ? pin.nodeId        : comp.cableSourceNodeId;
+            auto dstPin  = comp.cableSourceIsOutput ? pin.pinId         : comp.cableSourcePinId;
             const bool isMod = comp.cableSourceIsMod || pin.isMod;
             const bool isTrig = comp.cableSourceIsTrigger || (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
-            const juce::Colour cableCol = isTrig ? juce::Colour(0xFFFF7A18) : (isMod ? (comp.cableSourceIsOutput ? comp.cableSourceColour : pin.colour) : MiMOLookAndFeel::fountainInk);
+
+            // Task 3.6: Topologia Hub MiMO (Rock Pi) - Reindirizza cavi fisici HW verso porte Rock Pi, mai a MasterOut
+            bool isSrcHw = false;
+            for (const auto& n : comp.nodes)
+            {
+                if (n.id == srcNode && n.type == NodeType::HardwareModule)
+                {
+                    isSrcHw = true;
+                    break;
+                }
+            }
+
+            if (isSrcHw && !isMod && !isTrig)
+            {
+                bool isDstMaster = false;
+                for (const auto& n : comp.nodes)
+                {
+                    if (n.id == dstNode && n.type == NodeType::MasterOut)
+                    {
+                        isDstMaster = true;
+                        break;
+                    }
+                }
+
+                if (isDstMaster)
+                {
+                    bool foundPort = false;
+                    for (int pIdx = 1; pIdx <= 5; ++pIdx)
+                    {
+                        const juce::String rPiPin = "audio:p" + juce::String(pIdx);
+                        bool slotTaken = false;
+                        for (const auto& c : comp.cables)
+                        {
+                            if (c.targetNodeId == "rockpi" && c.targetPinId == rPiPin)
+                            {
+                                slotTaken = true;
+                                break;
+                            }
+                        }
+                        if (!slotTaken)
+                        {
+                            dstNode = "rockpi";
+                            dstPin = rPiPin;
+                            foundPort = true;
+                            break;
+                        }
+                    }
+
+                    if (!foundPort)
+                    {
+                        comp.isUnhookingExistingCable = false;
+                        comp.cableFreehandWorld.clear();
+                        comp.dragMode = MainComponent::DragMode::None;
+                        comp.repaint();
+                        return;
+                    }
+                }
+            }
+
+            juce::Colour cableCol = isTrig ? juce::Colour(0xFFFF7A18) : (isMod ? (comp.cableSourceIsOutput ? comp.cableSourceColour : pin.colour) : MiMOLookAndFeel::fountainInk);
+            if (!isMod && !isTrig)
+            {
+                for (const auto& n : comp.nodes)
+                {
+                    if (n.id == srcNode && (n.type == NodeType::NestedEffect || n.type == NodeType::InstrumentNode))
+                    {
+                        cableCol = n.crayonColour;
+                        break;
+                    }
+                }
+            }
 
             comp.cables.erase(std::remove_if(comp.cables.begin(), comp.cables.end(),
                 [&](const CanvasCable& c) {
@@ -416,18 +486,8 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
                     const juce::String targetHwId = comp.findHwModuleAt(worldPt);
                     if (targetHwId.isNotEmpty())
                     {
-                        for (auto& n : comp.nodes)
-                        {
-                            if (n.id == targetHwId)
-                            {
-                                n.hasInstrument = true;
-                                n.instrumentName = comp.draggedCatalogItem.name;
-                                n.instrumentEngine = comp.draggedCatalogItem.engine;
-                                n.crayonColour = comp.draggedCatalogItem.colour;
-                                break;
-                            }
-                        }
-                        comp.syncAudioRoutes();
+                        // Task 3.5: Disposizione Automatica dello Strumento alla Destra del Modulo
+                        comp.assignInstrumentToHardware(targetHwId, comp.draggedCatalogItem);
                     }
                     else
                     {
@@ -442,7 +502,7 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
                                     "c-" + juce::String(juce::Time::getMillisecondCounter()) + "-" + juce::String(rand() % 1000),
                                     instNode.id, "audio:out",
                                     n.id, "audio:in",
-                                    false, MiMOLookAndFeel::fountainInk, {}
+                                    false, instNode.crayonColour, {}
                                 });
                                 break;
                             }
@@ -467,6 +527,25 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
                 }
             }
             comp.pushUndoSnapshot();
+        }
+        else
+        {
+            // Task 3.4: Auto-Collegamento Diretto da Libreria (click o rilascio nella sidebar)
+            if (comp.draggedCatalogItem.isEffect)
+            {
+                comp.autoConnectEffectFromLibrary(comp.draggedCatalogItem);
+            }
+            else if (comp.selectedNodeId.isNotEmpty())
+            {
+                for (const auto& n : comp.nodes)
+                {
+                    if (n.id == comp.selectedNodeId && n.type == NodeType::HardwareModule)
+                    {
+                        comp.assignInstrumentToHardware(n.id, comp.draggedCatalogItem);
+                        break;
+                    }
+                }
+            }
         }
         comp.hoveredHwNodeId.clear();
         comp.hoveredAudioCableId.clear();

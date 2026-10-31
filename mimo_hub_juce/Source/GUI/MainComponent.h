@@ -472,6 +472,14 @@ private:
     {
         CanvasGraphEditor::insertEffectOnCable(*this, fx, cableId, worldPos);
     }
+    void assignInstrumentToHardware(const juce::String& hwNodeId, const CatalogItem& instrument)
+    {
+        CanvasGraphEditor::assignInstrumentToHardware(*this, hwNodeId, instrument);
+    }
+    void autoConnectEffectFromLibrary(const CatalogItem& fx)
+    {
+        CanvasGraphEditor::autoConnectEffectFromLibrary(*this, fx);
+    }
     void deleteSelectedEffect()
     {
         CanvasGraphEditor::deleteSelectedEffect(*this);

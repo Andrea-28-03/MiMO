@@ -12,6 +12,8 @@ class CanvasGraphEditor
 {
 public:
     static void insertEffectOnCable(MainComponent& comp, const CatalogItem& fx, const juce::String& cableId, juce::Point<float> worldPos);
+    static void assignInstrumentToHardware(MainComponent& comp, const juce::String& hwNodeId, const CatalogItem& instrument);
+    static void autoConnectEffectFromLibrary(MainComponent& comp, const CatalogItem& fx);
     static void deleteNode(MainComponent& comp, const juce::String& nodeId);
     static void deleteSelectedEffect(MainComponent& comp);
 

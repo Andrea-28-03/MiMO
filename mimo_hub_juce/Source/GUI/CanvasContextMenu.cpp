@@ -268,20 +268,7 @@ void CanvasContextMenu::showContextMenu(MainComponent& comp, juce::Point<float> 
                     addAction(assignMenu, item.name, true, [safeComp = juce::Component::SafePointer<MainComponent>(&comp), clickedNodeId, item]() {
                         if (auto* c = safeComp.getComponent())
                         {
-                            c->pushUndoSnapshot();
-                            for (auto& n : c->nodes)
-                            {
-                                if (n.id == clickedNodeId)
-                                {
-                                    n.hasInstrument = true;
-                                    n.instrumentName = item.name;
-                                    n.instrumentEngine = item.engine;
-                                    n.crayonColour = item.colour;
-                                    break;
-                                }
-                            }
-                            c->syncAudioRoutes();
-                            c->repaint();
+                            c->assignInstrumentToHardware(clickedNodeId, item);
                         }
                     });
                 }

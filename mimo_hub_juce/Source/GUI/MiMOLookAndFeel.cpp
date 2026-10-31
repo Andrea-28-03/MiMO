@@ -437,9 +437,20 @@ void MiMOLookAndFeel::drawInkCable(juce::Graphics& g, juce::Point<float> start, 
     }
     else if (!isModulation && !isExposeCable)
     {
-        // Cavo Audio: passata pulita e decisa a inchiostro stilografico
-        g.setColour(fountainInk);
-        g.strokePath(d1, juce::PathStrokeType(2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        // Cavo Audio: se possiede un colore timbrico caratteristico, disegna la guaina pastello con anima a inchiostro
+        if (modColour != fountainInk && modColour != juce::Colours::transparentBlack && modColour != juce::Colour(0x00000000))
+        {
+            g.setColour(modColour.withAlpha(0.88f));
+            g.strokePath(d1, juce::PathStrokeType(4.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+            g.setColour(fountainInk);
+            g.strokePath(d1, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else
+        {
+            g.setColour(fountainInk);
+            g.strokePath(d1, juce::PathStrokeType(2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
     }
     else
     {

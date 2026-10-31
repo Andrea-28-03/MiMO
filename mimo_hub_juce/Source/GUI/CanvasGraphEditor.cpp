@@ -1,4 +1,4 @@
-#include "CanvasGraphEditor.h"
+﻿#include "CanvasGraphEditor.h"
 #include "MainComponent.h"
 #include "MiMOLookAndFeel.h"
 #include <algorithm>
@@ -195,6 +195,7 @@ void CanvasGraphEditor::insertEffectOnCable(MainComponent& comp, const CatalogIt
 
     juce::Point<float> insertPos;
 
+    juce::String createdNodeId;
     if (isVerticalCable)
     {
         const float effectHeight = 165.0f;
@@ -222,10 +223,11 @@ void CanvasGraphEditor::insertEffectOnCable(MainComponent& comp, const CatalogIt
         CanvasNode newNode = CanvasGraphHelper::createFxNodeFromCatalog(fx, insertPos, comp.fxCounter++, true);
         newNode.targetPos = insertPos;
         newNode.isAnimatingPos = false;
+        createdNodeId = newNode.id;
         comp.nodes.push_back(newNode);
 
         comp.cables.push_back({ "c-" + newNode.id + "-in",  orig.sourceNodeId, orig.sourcePinId, newNode.id, "audio:in", false, MiMOLookAndFeel::fountainInk, {} });
-        comp.cables.push_back({ "c-" + newNode.id + "-out", newNode.id, "audio:out", orig.targetNodeId, orig.targetPinId, false, MiMOLookAndFeel::fountainInk, {} });
+        comp.cables.push_back({ "c-" + newNode.id + "-out", newNode.id, "audio:out", orig.targetNodeId, orig.targetPinId, false, newNode.crayonColour, {} });
     }
     else
     {
@@ -281,12 +283,17 @@ void CanvasGraphEditor::insertEffectOnCable(MainComponent& comp, const CatalogIt
         CanvasNode newNode = CanvasGraphHelper::createFxNodeFromCatalog(fx, insertPos, comp.fxCounter++, false);
         newNode.targetPos = insertPos;
         newNode.isAnimatingPos = false;
+        createdNodeId = newNode.id;
         comp.nodes.push_back(newNode);
 
         comp.cables.push_back({ "c-" + newNode.id + "-in",  orig.sourceNodeId, orig.sourcePinId, newNode.id, "audio:in", false, MiMOLookAndFeel::fountainInk, {} });
-        comp.cables.push_back({ "c-" + newNode.id + "-out", newNode.id, "audio:out", orig.targetNodeId, orig.targetPinId, false, MiMOLookAndFeel::fountainInk, {} });
+        comp.cables.push_back({ "c-" + newNode.id + "-out", newNode.id, "audio:out", orig.targetNodeId, orig.targetPinId, false, newNode.crayonColour, {} });
     }
 
+    if (createdNodeId.isNotEmpty())
+        comp.selectSingleNode(createdNodeId);
+    comp.pushUndoSnapshot();
+    comp.syncAudioRoutes();
     comp.startTimerHz(60);
     comp.repaint();
 }
@@ -358,13 +365,50 @@ void CanvasGraphEditor::deleteNode(MainComponent& comp, const juce::String& node
 
         if (prevSourceNode.isNotEmpty() && nextTargetNode.isNotEmpty())
         {
+            juce::Colour prevColour = MiMOLookAndFeel::fountainInk;
+            for (const auto& n : comp.nodes)
+            {
+                if (n.id == prevSourceNode && (n.type == NodeType::NestedEffect || n.type == NodeType::InstrumentNode))
+                {
+                    prevColour = n.crayonColour;
+                    break;
+                }
+            }
+
             comp.cables.push_back({
                 "c-bypass-" + juce::String(juce::Time::getMillisecondCounter()),
                 prevSourceNode, prevSourcePin,
                 nextTargetNode, nextTargetPin,
-                false, MiMOLookAndFeel::fountainInk, {}
+                false, prevColour, {}
             });
         }
+
+        // Ripple Delete: richiudi lo spazio vuoto riavvicinando i nodi a valle
+        if (nodeToDelete.isVerticalFlow)
+        {
+            const float shiftAmountY = nodeToDelete.size.y + 40.0f;
+            for (auto& n : comp.nodes)
+            {
+                if (n.id != "rockpi" && n.id != nodeId && n.pos.y > nodeToDelete.pos.y)
+                {
+                    n.targetPos.y = n.pos.y - shiftAmountY;
+                    n.isAnimatingPos = true;
+                }
+            }
+        }
+        else
+        {
+            const float shiftAmountX = nodeToDelete.size.x + 50.0f;
+            for (auto& n : comp.nodes)
+            {
+                if (n.id != "rockpi" && n.id != nodeId && n.pos.x > nodeToDelete.pos.x)
+                {
+                    n.targetPos.x = n.pos.x - shiftAmountX;
+                    n.isAnimatingPos = true;
+                }
+            }
+        }
+        comp.startTimerHz(60);
     }
     else
     {
@@ -388,6 +432,229 @@ void CanvasGraphEditor::deleteSelectedEffect(MainComponent& comp)
 {
     if (comp.selectedNodeId.isNotEmpty())
         deleteNode(comp, comp.selectedNodeId);
+}
+
+void CanvasGraphEditor::assignInstrumentToHardware(MainComponent& comp, const juce::String& hwNodeId, const CatalogItem& item)
+{
+    CanvasNode* hwNode = nullptr;
+    for (auto& n : comp.nodes)
+    {
+        if (n.id == hwNodeId)
+        {
+            hwNode = &n;
+            break;
+        }
+    }
+    if (hwNode == nullptr)
+        return;
+
+    comp.pushUndoSnapshot();
+
+    // Calcola la posizione libera immediatamente alla destra del modulo hardware (Task 3.5)
+    const float spacingX = 45.0f;
+    const juce::Point<float> instPos { hwNode->pos.x + hwNode->size.x + spacingX, hwNode->pos.y };
+
+    // Fai spazio ai nodi che si trovano a destra
+    const float shiftWidth = 330.0f + spacingX;
+    for (auto& n : comp.nodes)
+    {
+        if (n.id != hwNodeId && n.id != "rockpi" && n.pos.x >= instPos.x - 20.0f && std::abs(n.pos.y - hwNode->pos.y) < 220.0f)
+        {
+            n.targetPos.x = n.pos.x + shiftWidth;
+            n.isAnimatingPos = true;
+        }
+    }
+
+    // Istanzia lo strumento completo visibile ed editabile sul canvas
+    auto instNode = CanvasGraphHelper::createInstrumentNodeFromCatalog(item, instPos, comp.fxCounter++);
+    instNode.targetPos = instPos;
+    instNode.isAnimatingPos = false;
+    comp.nodes.push_back(instNode);
+
+    // Collega cavi di trigger e modulazione dal controller allo strumento
+    if (hwNode->id == "hw-drum")
+    {
+        comp.cables.push_back({
+            "c-trig-" + instNode.id,
+            hwNode->id, "trigger:out",
+            instNode.id, "trigger:in",
+            false, juce::Colour(0xFFFF7A18), {}, true
+        });
+        comp.cables.push_back({
+            "c-vel-" + instNode.id,
+            hwNode->id, "mod:vel",
+            instNode.id, "param:direct.vol",
+            true, MiMOLookAndFeel::crayonCherry, {}
+        });
+    }
+    else if (hwNode->isIntegratedCamera || hwNode->id == "hw-webcam" || hwNode->id == "hw-eye")
+    {
+        comp.cables.push_back({
+            "c-trig-" + instNode.id,
+            hwNode->id, "trigger:dx_pinch_idx",
+            instNode.id, "trigger:in",
+            false, juce::Colour(0xFFFF7A18), {}, true
+        });
+        comp.cables.push_back({
+            "c-mod-" + instNode.id,
+            hwNode->id, "mod:dx_y",
+            instNode.id, "param:direct.cutoff",
+            true, MiMOLookAndFeel::crayonOchre, {}
+        });
+    }
+    else // hw-mic
+    {
+        comp.cables.push_back({
+            "c-trig-" + instNode.id,
+            hwNode->id, "trigger:out",
+            instNode.id, "trigger:in",
+            false, juce::Colour(0xFFFF7A18), {}, true
+        });
+    }
+
+    // Connetti l'uscita audio verso MiMO Base Rock Pi o Master
+    juce::String targetAudioNode = "master";
+    for (const auto& n : comp.nodes)
+    {
+        if (n.id == "rockpi")
+        {
+            targetAudioNode = "rockpi";
+            break;
+        }
+    }
+
+    if (targetAudioNode == "rockpi")
+    {
+        comp.cables.push_back({
+            "c-inst-pi-" + instNode.id,
+            instNode.id, "audio:out",
+            "rockpi", "audio:p3",
+            false, instNode.crayonColour, {}
+        });
+    }
+    else
+    {
+        comp.cables.push_back({
+            "c-inst-mst-" + instNode.id,
+            instNode.id, "audio:out",
+            "master", "audio:in",
+            false, instNode.crayonColour, {}
+        });
+    }
+
+    hwNode->hasInstrument = true;
+    hwNode->instrumentName = item.name;
+    hwNode->instrumentEngine = item.engine;
+    hwNode->crayonColour = item.colour;
+
+    comp.selectSingleNode(instNode.id);
+    comp.syncAudioRoutes();
+    comp.startTimerHz(60);
+    comp.repaint();
+}
+
+void CanvasGraphEditor::autoConnectEffectFromLibrary(MainComponent& comp, const CatalogItem& fx)
+{
+    comp.pushUndoSnapshot();
+
+    CanvasNode* selNode = nullptr;
+    if (comp.selectedNodeId.isNotEmpty())
+    {
+        for (auto& n : comp.nodes)
+        {
+            if (n.id == comp.selectedNodeId)
+            {
+                selNode = &n;
+                break;
+            }
+        }
+    }
+
+    if (selNode == nullptr)
+    {
+        for (auto it = comp.nodes.rbegin(); it != comp.nodes.rend(); ++it)
+        {
+            if (it->type == NodeType::NestedEffect || it->type == NodeType::InstrumentNode)
+            {
+                selNode = &(*it);
+                break;
+            }
+        }
+    }
+
+    if (selNode != nullptr && selNode->type != NodeType::MasterOut)
+    {
+        juce::String outgoingCableId;
+        for (const auto& c : comp.cables)
+        {
+            if (!c.isModulation && !c.isTrigger && c.sourceNodeId == selNode->id && c.sourcePinId == "audio:out")
+            {
+                outgoingCableId = c.id;
+                break;
+            }
+        }
+
+        if (outgoingCableId.isNotEmpty())
+        {
+            insertEffectOnCable(comp, fx, outgoingCableId, selNode->pos + juce::Point<float>{ 150.0f, 0.0f });
+            return;
+        }
+        else
+        {
+            const float spacing = 45.0f;
+            const juce::Point<float> insertPos { selNode->pos.x + selNode->size.x + spacing, selNode->pos.y };
+
+            for (auto& n : comp.nodes)
+            {
+                if (n.id != selNode->id && n.id != "rockpi" && n.pos.x >= insertPos.x - 20.0f)
+                {
+                    n.targetPos.x = n.pos.x + 280.0f;
+                    n.isAnimatingPos = true;
+                }
+            }
+
+            auto newNode = CanvasGraphHelper::createFxNodeFromCatalog(fx, insertPos, comp.fxCounter++, false);
+            newNode.targetPos = insertPos;
+            newNode.isAnimatingPos = false;
+            comp.nodes.push_back(newNode);
+
+            comp.cables.push_back({
+                "c-" + newNode.id + "-in",
+                selNode->id, "audio:out",
+                newNode.id, "audio:in",
+                false, selNode->crayonColour, {}
+            });
+
+            for (const auto& n : comp.nodes)
+            {
+                if (n.type == NodeType::MasterOut)
+                {
+                    comp.cables.push_back({
+                        "c-" + newNode.id + "-out",
+                        newNode.id, "audio:out",
+                        n.id, "audio:in",
+                        false, newNode.crayonColour, {}
+                    });
+                    break;
+                }
+            }
+
+            comp.selectSingleNode(newNode.id);
+            comp.syncAudioRoutes();
+            comp.startTimerHz(60);
+            comp.repaint();
+            return;
+        }
+    }
+
+    const float midX = static_cast<float>(comp.getWidth()) * 0.40f;
+    const float midY = static_cast<float>(comp.getHeight()) * 0.45f;
+    const auto worldPos = comp.screenToWorld({ midX, midY });
+    auto newNode = CanvasGraphHelper::createFxNodeFromCatalog(fx, worldPos, comp.fxCounter++, false);
+    comp.nodes.push_back(newNode);
+    comp.selectSingleNode(newNode.id);
+    comp.syncAudioRoutes();
+    comp.repaint();
 }
 
 } // namespace mimo

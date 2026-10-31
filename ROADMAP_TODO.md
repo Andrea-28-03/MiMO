@@ -72,18 +72,18 @@
 ## ⚡ Fase 3: Smart Routing & Gestione Spaziale Cavi nel Canvas
 *Obiettivo: Automatizzare le connessioni e l'organizzazione dello spazio, trasformando il canvas in un banco da lavoro intelligente.*
 
-- [ ] **3.1. Auto-Drop Effetto su Cavo (Insert in Serie Automatico)** `[@HUB @AUDIO]`
+- [x] **3.1. Auto-Drop Effetto su Cavo (Insert in Serie Automatico)** `[@HUB @AUDIO]`
   - Trascinando un effetto sopra un cavo audio esistente, il cavo si illumina con alone luminoso (glow pastello).
   - Al rilascio, il programma fa automaticamente spazio tra i due nodi e connette in serie l'effetto inserito.
-- [ ] **3.2. Auto-Compattazione alla Rimozione (Ripple Delete)** `[@HUB @AUDIO]`
+- [x] **3.2. Auto-Compattazione alla Rimozione (Ripple Delete)** `[@HUB @AUDIO]`
   - Eliminando un effetto posto tra due elementi, gli elementi adiacenti si riavvicinano automaticamente richiudendo lo spazio vuoto e ricollegando il cavo diretto.
-- [ ] **3.3. Cavi Dinamici con Colore Timbrico dell'Effetto** `[@HUB @AUDIO]`
+- [x] **3.3. Cavi Dinamici con Colore Timbrico dell'Effetto** `[@HUB @AUDIO]`
   - Il cavo in uscita da ciascun effetto assume il colore caratteristico dell'effetto stesso (es. Ciano per il Filtro, Pesca per il Chorus, Cherry per il Saturatore), visualizzando intuitivamente il percorso di trasformazione del suono.
-- [ ] **3.4. Auto-Collegamento Diretto da Libreria** `[@HUB @AUDIO]`
+- [x] **3.4. Auto-Collegamento Diretto da Libreria** `[@HUB @AUDIO]`
   - Avendo uno strumento o un modulo selezionato, un semplice click su un effetto della libreria lo istanzia e lo connette automaticamente a valle.
-- [ ] **3.5. Disposizione Automatica dello Strumento alla Destra del Modulo** `[@HUB @LOGIC]`
+- [x] **3.5. Disposizione Automatica dello Strumento alla Destra del Modulo** `[@HUB @LOGIC]`
   - Quando si assegna uno strumento a un modulo hardware, lo strumento non scompare più "incorporato", ma si posiziona automaticamente alla destra del modulo facendogli spazio, mantenendo tutti i controlli visibili ed editabili.
-- [ ] **3.6. Topologia Hub MiMO (Rock Pi)** `[@HUB @AUDIO @COMMS @HARDWARE]`
+- [x] **3.6. Topologia Hub MiMO (Rock Pi)** `[@HUB @AUDIO @COMMS @HARDWARE]`
   - I moduli hardware convogliano i propri comandi verso la Base Centrale MiMO e verso gli strumenti, garantendo un albero di segnale pulito senza cavi diretti spuri al master bus.
 
 ---

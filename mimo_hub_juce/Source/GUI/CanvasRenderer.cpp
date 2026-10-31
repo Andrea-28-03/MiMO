@@ -109,10 +109,23 @@ void CanvasRenderer::paintCables(juce::Graphics& g, MainComponent& comp, const s
             }
         }
 
+        juce::Colour cableColor = c.colour;
+        if (!c.isModulation && !isTrigCable)
+        {
+            for (const auto& n : comp.nodes)
+            {
+                if (n.id == c.sourceNodeId && (n.type == NodeType::NestedEffect || n.type == NodeType::InstrumentNode))
+                {
+                    cableColor = n.crayonColour;
+                    break;
+                }
+            }
+        }
+
         MiMOLookAndFeel::drawInkCable(g, p1, p2, c.freehandNorm,
                                       static_cast<int>(i) * 37 + 11, comp.boilTick,
                                       c.isModulation,
-                                      c.colour,
+                                      cableColor,
                                       isHover, false,
                                       n1, n2,
                                       isTrigCable,
@@ -139,6 +152,11 @@ void CanvasRenderer::paintLiveCable(juce::Graphics& g, MainComponent& comp)
         {
             g.setColour(comp.cableSourceColour.withAlpha(0.85f));
             g.strokePath(livePath, juce::PathStrokeType(5.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else if (comp.cableSourceColour != MiMOLookAndFeel::fountainInk && comp.cableSourceColour != juce::Colours::transparentBlack)
+        {
+            g.setColour(comp.cableSourceColour.withAlpha(0.85f));
+            g.strokePath(livePath, juce::PathStrokeType(4.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
         g.setColour(MiMOLookAndFeel::fountainInk);
         g.strokePath(livePath, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
