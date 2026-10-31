@@ -1,5 +1,6 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "GUI/MainComponent.h"
+#include <cstdlib>
 
 namespace mimo
 {
@@ -42,10 +43,43 @@ public:
 
     const juce::String getApplicationName() override       { return "MiMO Hub"; }
     const juce::String getApplicationVersion() override    { return "1.0.0"; }
-    bool moreThanOneInstanceAllowed() override             { return false; }
+    bool moreThanOneInstanceAllowed() override             { return true; }
 
     void initialise(const juce::String& commandLine) override
     {
+       #if JUCE_WINDOWS
+        // Risoluzione autorizzazioni webcam Windows 10/11 per volumi virtuali (Google Drive H:\):
+        // Quando un processo viene avviato da Google Drive for Desktop (H:\),
+        // il Windows Camera Frame Server blocca la webcam fisica nativa (HP Wide Vision HD)
+        // restituendo l'errore 0x80070490 (ERROR_NOT_FOUND).
+        // Se rileviamo l'avvio da H:\ o da un'unità virtuale/cloud, copiamo l'eseguibile nella cartella locale
+        // %LOCALAPPDATA%\MiMOHub e lo rilanciamo da disco fisso locale con pieni privilegi.
+        const auto currentExe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+        const juce::String localApp = juce::SystemStats::getEnvironmentVariable("LOCALAPPDATA", "C:\\Users\\Utente\\AppData\\Local");
+        const juce::File localDir = juce::File(localApp).getChildFile("MiMOHub");
+        const juce::File targetExe = localDir.getChildFile("MiMO Hub.exe");
+
+        // Se avviato dall'unità cloud virtuale H:\:
+        // copia l'eseguibile su disco fisso locale (%LOCALAPPDATA%\MiMOHub) e lancia la copia locale
+        // per garantire l'accesso hardware alla fotocamera da parte di Windows Camera Frame Server.
+        if (currentExe.existsAsFile() && currentExe.getFullPathName().startsWithIgnoreCase("H:\\"))
+        {
+            localDir.createDirectory();
+            if (!targetExe.existsAsFile()
+                || currentExe.getLastModificationTime() > targetExe.getLastModificationTime()
+                || currentExe.getSize() != targetExe.getSize())
+            {
+                targetExe.deleteFile();
+                currentExe.copyFileTo(targetExe);
+            }
+
+            if (targetExe.existsAsFile() && targetExe.startAsProcess(commandLine))
+            {
+                std::exit(0);
+            }
+        }
+       #endif
+
         juce::ignoreUnused(commandLine);
         mainWindow = std::make_unique<MainWindow>(getApplicationName());
     }
@@ -63,6 +97,10 @@ public:
     void anotherInstanceStarted(const juce::String& commandLine) override
     {
         juce::ignoreUnused(commandLine);
+        if (mainWindow != nullptr)
+        {
+            mainWindow->toFront(true);
+        }
     }
 
 private:

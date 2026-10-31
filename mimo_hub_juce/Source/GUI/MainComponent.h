@@ -99,6 +99,25 @@ private:
         juce::Colour colour;
     };
 
+    struct NodeOutputDef
+    {
+        juce::String pinId;       // es. "mod:x", "trigger:out", "trigger:pinch_idx"
+        juce::String label;       // es. "Asse X (Orizz.)", "Pinch Indice"
+        juce::Colour colour;      // es. crayonCyan, crayonCherry, 0xFFFF7A18
+        bool isTrigger = false;   // true -> Diamond pin, false -> Tri pin
+        juce::String hint;        // es. "(tira verso manopola)", "(verso TRIG strumento)"
+    };
+
+    struct NodeOutputGroup
+    {
+        juce::String id;          // es. "eye_palm", "eye_fingers", "eye_pinches", "eye_sec"
+        juce::String name;        // es. "Palmo 3D (DX)", "Dita & Falangi (DX)"
+        juce::String parentGroup; // es. "eye_dx" o "eye_sx" (vuoto se gruppo radice)
+        bool isExpanded = false;  // Aperto o Chiuso a tendina
+        bool isEnabled = true;    // Abilitato o Disabilitato (Interruttore ON/OFF)
+        std::vector<NodeOutputDef> items;
+    };
+
     enum class NodeType
     {
         RockPiCentral,
@@ -124,6 +143,7 @@ private:
         juce::String instrumentName;
         juce::String instrumentEngine;
         std::vector<ModOutputDef> modOutputs;
+        std::vector<NodeOutputGroup> outputGroups; // Gruppi a tendina espandibili / collassabili
         std::vector<InnerFaustBlock> innerBlocks;
         std::vector<KnobParam> directParams; // Usato da MasterOut
         bool isVerticalFlow = false; // Se true: audio:in dal basso, audio:out dall'alto (flusso verticale modulo -> MIMO)
@@ -141,6 +161,7 @@ private:
         bool isModulation = false;
         juce::Colour colour = MiMOLookAndFeel::fountainInk;
         std::vector<juce::Point<float>> freehandNorm;
+        bool isTrigger = false;
     };
 
     struct GraphSnapshot
@@ -258,7 +279,12 @@ private:
     std::atomic<int> synthInstrumentType { 0 };    // 0=Drum Kit, 1=808 Sub, 2=Kalimba/Marimba, 3=Synth
     std::atomic<float> synthFilterCutoffHz { 2400.0f };
     std::atomic<float> synthFilterReso { 0.3f };
-    std::atomic<float> synthMasterGain { 0.85f };
+    std::atomic<float> synthMasterGain { 1.20f };
+    std::atomic<float> appMasterVolume { 1.20f };
+    void setAppMasterVolume(float newVolume);
+    float getAppMasterVolume() const noexcept { return appMasterVolume.load(); }
+    void saveSettings();
+    void loadSettings();
     double synthSampleRate = 48000.0;
     float synthEnv = 0.0f;
     float synthPitchEnv = 0.0f;
@@ -297,6 +323,9 @@ private:
 
     bool isMicInCanvas() const;
     bool isCameraInCanvas() const;
+    bool isHandEnabled(bool isSecondary) const;
+    bool isHandTriggersEnabled(bool isSecondary) const;
+    bool isGroupEnabled(const juce::String& groupId) const;
     void updateHardwareDeviceStates();
     void startRealMicrophone();
     void stopRealMicrophone();
@@ -413,7 +442,8 @@ private:
         DragPolaroid,
         DragMicSensitivity,
         DragCanvasMicSensitivity,
-        DragCameraSensitivity
+        DragCameraSensitivity,
+        DragSettingsVolume
     };
     DragMode dragMode = DragMode::None;
 
@@ -429,10 +459,23 @@ private:
     juce::String cableSourcePinId;
     bool cableSourceIsOutput = true;
     bool cableSourceIsMod = false;
+    bool cableSourceIsTrigger = false;
+    MiMOLookAndFeel::PinShapeType cableSourceShape = MiMOLookAndFeel::PinShapeType::AudioCircle;
     juce::Colour cableSourceColour;
     juce::Point<float> cableStartWorld;
     juce::Point<float> cableCurrentWorld;
     std::vector<juce::Point<float>> cableFreehandWorld;
+
+    // Selezione Cavi e Pin per cancellazione rapida ([CANC] / [Backspace])
+    juce::String selectedCableId;
+    juce::String selectedPinNodeId;
+    juce::String selectedPinId;
+
+    // Distacco e re-routing cavi ("prendendo quel nodo e lasciandolo nel nulla si stacchi")
+    bool isUnhookingExistingCable = false;
+    CanvasCable unhookedOriginalCable;
+    juce::Point<float> unhookDragStartWorld;
+
 
     // Hover sui Pin e sui Cavi
     juce::String hoveredPinNodeId;
@@ -470,7 +513,9 @@ private:
         juce::Colour colour = MiMOLookAndFeel::fountainInk;
         juce::Point<float> worldPos;
         juce::Point<float> normal { 0.0f, 0.0f }; // Direzione di uscita o ingresso presa
+        MiMOLookAndFeel::PinShapeType shapeType = MiMOLookAndFeel::PinShapeType::AudioCircle;
     };
+    float getNodeCalculatedHeight(const CanvasNode& node) const;
     std::vector<PinHit> collectAllPins() const;
     juce::Point<float> getPinWorldPos(const juce::String& nodeId, const juce::String& pinId) const;
     juce::Point<float> getPinNormal(const juce::String& nodeId, const juce::String& pinId) const;
@@ -489,6 +534,7 @@ private:
     juce::String findHwModuleAt(juce::Point<float> worldPt) const;
     void insertEffectOnCable(const CatalogItem& fx, const juce::String& cableId, juce::Point<float> worldPos);
     void deleteSelectedEffect();
+    void deleteNode(const juce::String& nodeId);
 
     // Azioni Polaroid
     void triggerSnapPolaroid();
@@ -511,6 +557,11 @@ private:
     juce::Rectangle<float> getCameraButtonBounds() const;
     juce::Rectangle<float> getSettingsButtonBounds() const;
     juce::Rectangle<float> getSettingsPanelBounds() const;
+    juce::Rectangle<float> getSettingsVolumeTrackBounds() const;
+    juce::Rectangle<float> getSettingsVolDownBtnBounds() const;
+    juce::Rectangle<float> getSettingsVol100BtnBounds() const;
+    juce::Rectangle<float> getSettingsVol150BtnBounds() const;
+    juce::Rectangle<float> getSettingsVolUpBtnBounds() const;
 
     juce::Rectangle<float> getIntegratedHeaderBounds() const;
     juce::Rectangle<float> getIntegratedBodyBounds() const;

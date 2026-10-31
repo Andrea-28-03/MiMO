@@ -107,6 +107,7 @@ def run_desktop_simulation():
     print("[*] Ambiente Desktop rilevato (Nessun /dev/fb* presente).")
     print("[*] Avvio in MODALITÀ SIMULATORE DESKTOP (Finestra 480x320)...")
     try:
+        # pyrefly: ignore[missing-import]
         import pygame
         pygame.init()
         screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))

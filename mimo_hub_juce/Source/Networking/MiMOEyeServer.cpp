@@ -343,6 +343,8 @@ private:
 static juce::File findMediaPipeAssetFile(const juce::String& fileName)
 {
     const juce::Array<juce::File> searchDirs = {
+        juce::File("C:/Users/Utente/AppData/Local/MiMOHub/Resources/mediapipe"),
+        juce::File::getSpecialLocation(juce::File::currentApplicationFile).getParentDirectory().getChildFile("Resources/mediapipe"),
         juce::File("H:/Il mio Drive/5. Programmazione MIMO/MiMO_Project/mimo_hub_juce/Resources/mediapipe"),
         juce::File::getCurrentWorkingDirectory().getChildFile("Resources/mediapipe"),
         juce::File::getCurrentWorkingDirectory().getChildFile("mimo_hub_juce/Resources/mediapipe"),
@@ -378,6 +380,10 @@ public:
     {
         signalThreadShouldExit();
         child.kill();
+       #if JUCE_WINDOWS
+        juce::ChildProcess p;
+        p.start("taskkill /F /FI \"WINDOWTITLE eq *mediapipe*\"");
+       #endif
         stopThread(1200);
     }
 
@@ -390,6 +396,9 @@ private:
 
         // 1. Priorita Massima: Worker Python Nativo (Google MediaPipe 1.2+ CPU XNNPACK SIMD)
         const juce::Array<juce::File> pythonCandidates = {
+            juce::File("C:/Users/Utente/AppData/Local/MiMOHub/eye_env/Scripts/python.exe"),
+            juce::File("C:/Users/Utente/AppData/Local/Programs/Python/Python311/python.exe"),
+            juce::File::getSpecialLocation(juce::File::currentApplicationFile).getParentDirectory().getChildFile("eye_env/Scripts/python.exe"),
             juce::File("H:/Il mio Drive/5. Programmazione MIMO/MiMO_Project/mimo_hub_juce/eye_env/Scripts/python.exe"),
             juce::File("H:/Il mio Drive/5. Programmazione MIMO/MiMO_Project/mimo_hub_juce/eye_env/Scripts/pythonw.exe"),
             juce::File::getCurrentWorkingDirectory().getChildFile("eye_env/Scripts/python.exe"),
@@ -420,7 +429,7 @@ private:
             pyCmd.add(workerScript.getFullPathName());
             pyCmd.add(juce::String(localPort));
 
-            child.start(pyCmd, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr);
+            child.start(pyCmd, 0);
 
             while (!threadShouldExit())
             {
@@ -428,13 +437,9 @@ private:
                 {
                     wait(2000);
                     if (!threadShouldExit())
-                        child.start(pyCmd, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr);
+                        child.start(pyCmd, 0);
                 }
-
-                // Drena l'output per non bloccare il buffer di pipe del processo su Windows
-                char dumpBuf[256];
-                child.readProcessOutput(dumpBuf, sizeof(dumpBuf));
-                wait(200);
+                wait(500);
             }
 
             child.kill();
@@ -1143,47 +1148,50 @@ void MiMOEyeServer::parseIncomingHandJson(const juce::String& jsonText)
             clientFps.store(static_cast<int>(currentState.fps + 0.5f));
         }
 
-        // Supporto per array multi-mano ("hands") con filtro Mano Destra / Sinistra / Entrambe
-        const juce::DynamicObject* chosenHand = nullptr;
-        const juce::DynamicObject* chosenHand2 = nullptr;
+        // Supporto per array multi-mano ("hands"): Mano Destra (DX) e Mano Sinistra (SX)
+        const juce::DynamicObject* chosenHand = nullptr;   // DX (Right)
+        const juce::DynamicObject* chosenHand2 = nullptr;  // SX (Left)
         if (obj->hasProperty("hands") && obj->getProperty("hands").isArray())
         {
             auto* handsArr = obj->getProperty("hands").getArray();
-            const int filter = handFilterMode.load(); // 0 = Entrambe, 1 = Destra, 2 = Sinistra
             for (const auto& hVar : *handsArr)
             {
                 if (auto* hObj = hVar.getDynamicObject())
                 {
                     const juce::String hSide = hObj->getProperty("handedness").toString();
-                    if (filter == 1 && !hSide.equalsIgnoreCase("Right"))
-                        continue;
-                    if (filter == 2 && !hSide.equalsIgnoreCase("Left"))
-                        continue;
-
-                    if (chosenHand == nullptr)
+                    if (hSide.equalsIgnoreCase("Right"))
                     {
-                        chosenHand = hObj;
+                        if (chosenHand == nullptr) chosenHand = hObj;
                     }
-                    else if (chosenHand2 == nullptr && filter == 0)
+                    else if (hSide.equalsIgnoreCase("Left"))
                     {
-                        chosenHand2 = hObj;
+                        if (chosenHand2 == nullptr) chosenHand2 = hObj;
                     }
+                }
+            }
+            // Se nessuna associazione per nome ma c'è una mano rilevata
+            if (chosenHand == nullptr && chosenHand2 == nullptr && !handsArr->isEmpty())
+            {
+                if (auto* firstH = (*handsArr)[0].getDynamicObject())
+                {
+                    const juce::String hSide = firstH->getProperty("handedness").toString();
+                    if (hSide.equalsIgnoreCase("Left"))
+                        chosenHand2 = firstH;
+                    else
+                        chosenHand = firstH;
                 }
             }
         }
         else if (obj->hasProperty("landmarks"))
         {
             const juce::String hSide = obj->getProperty("handedness").toString();
-            const int filter = handFilterMode.load();
-            if ((filter == 0) ||
-                (filter == 1 && hSide.equalsIgnoreCase("Right")) ||
-                (filter == 2 && hSide.equalsIgnoreCase("Left")))
-            {
+            if (hSide.equalsIgnoreCase("Left"))
+                chosenHand2 = obj;
+            else
                 chosenHand = obj;
-            }
         }
 
-        if (chosenHand == nullptr)
+        if (chosenHand == nullptr && chosenHand2 == nullptr)
         {
             currentState.hasHand = false;
             currentState.hasSecondaryHand = false;
@@ -1201,11 +1209,15 @@ void MiMOEyeServer::parseIncomingHandJson(const juce::String& jsonText)
         }
 
         // =====================================================================
-        // MANO PRIMARIA
+        // MANO PRIMARIA (DX)
         // =====================================================================
-        currentState.hasHand = true;
-        if (chosenHand->hasProperty("handedness"))
-            currentState.handedness = chosenHand->getProperty("handedness").toString();
+        if (chosenHand != nullptr)
+        {
+            currentState.hasHand = true;
+            if (chosenHand->hasProperty("handedness"))
+                currentState.handedness = chosenHand->getProperty("handedness").toString();
+            else
+                currentState.handedness = "Right";
 
         if (chosenHand->hasProperty("x"))
             currentState.palmX = juce::jlimit(0.0f, 1.0f, static_cast<float>(chosenHand->getProperty("x")));
@@ -1271,8 +1283,14 @@ void MiMOEyeServer::parseIncomingHandJson(const juce::String& jsonText)
             }
         }
 
+        }
+        else
+        {
+            currentState.hasHand = false;
+        }
+
         // =====================================================================
-        // MANO SECONDARIA (Se presenti entrambe le mani)
+        // MANO SECONDARIA (SX)
         // =====================================================================
         if (chosenHand2 != nullptr)
         {
@@ -1341,6 +1359,12 @@ void MiMOEyeServer::parseIncomingHandJson(const juce::String& jsonText)
                     }
                     prevSecondaryPinchActiveState[static_cast<size_t>(i)] = nowAct;
                 }
+            }
+
+            if (!currentState.hasHand)
+            {
+                currentState.hasHand = true;
+                currentState.handedness = "Left";
             }
         }
         else

@@ -275,24 +275,167 @@ juce::Path MiMOLookAndFeel::createInkCablePath(juce::Point<float> start, juce::P
     return path;
 }
 
+void MiMOLookAndFeel::drawPinJack(juce::Graphics& g, juce::Point<float> pos, float radius,
+                                  PinShapeType shapeType, juce::Colour colour,
+                                  bool isHovered, bool isSelected,
+                                  bool isValidDropTarget, bool isFiringPulse)
+{
+    float r = radius;
+
+    // Alone verde/salvia se è un target valido durante il trascinamento del cavo
+    if (isValidDropTarget)
+    {
+        g.setColour(crayonSage.withAlpha(0.40f));
+        g.fillEllipse(pos.x - r - 6.0f, pos.y - r - 6.0f, (r + 6.0f) * 2.0f, (r + 6.0f) * 2.0f);
+        g.setColour(crayonSage);
+        g.drawEllipse(pos.x - r - 6.0f, pos.y - r - 6.0f, (r + 6.0f) * 2.0f, (r + 6.0f) * 2.0f, 1.8f);
+    }
+    // Alone rosso/ciliegia se è selezionato
+    else if (isSelected)
+    {
+        g.setColour(crayonCherry.withAlpha(0.45f));
+        g.fillEllipse(pos.x - r - 7.0f, pos.y - r - 7.0f, (r + 7.0f) * 2.0f, (r + 7.0f) * 2.0f);
+        g.setColour(crayonCherry);
+        g.drawEllipse(pos.x - r - 7.0f, pos.y - r - 7.0f, (r + 7.0f) * 2.0f, (r + 7.0f) * 2.0f, 2.0f);
+    }
+    // Glow di hover quando il mouse passa sopra
+    else if (isHovered)
+    {
+        g.setColour(crayonOchre.withAlpha(0.50f));
+        g.fillEllipse(pos.x - r - 5.0f, pos.y - r - 5.0f, (r + 5.0f) * 2.0f, (r + 5.0f) * 2.0f);
+    }
+
+    if (shapeType == PinShapeType::TriggerDiamond)
+    {
+        // -------------------------------------------------------------
+        // FORMA: ROMBO / DIAMOND (TRIGGER & IMPULSI)
+        // -------------------------------------------------------------
+        if (isFiringPulse)
+            r *= 1.35f;
+
+        juce::Path diamond;
+        diamond.startNewSubPath(pos.x, pos.y - r);
+        diamond.lineTo(pos.x + r, pos.y);
+        diamond.lineTo(pos.x, pos.y + r);
+        diamond.lineTo(pos.x - r, pos.y);
+        diamond.closeSubPath();
+
+        // Flash luminoso se il trigger è scattato in questo momento
+        if (isFiringPulse)
+        {
+            g.setColour(colour.withAlpha(0.60f));
+            g.strokePath(diamond, juce::PathStrokeType(6.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        // Base opaca scura/carta
+        g.setColour(isDarkMode ? juce::Colour(0xFF1E2126) : juce::Colour(0xFFECE7DE));
+        g.fillPath(diamond);
+
+        // Riempimento interno colore arancio ambra
+        g.setColour(colour);
+        juce::Path innerDiamond;
+        const float ir = r * 0.58f;
+        innerDiamond.startNewSubPath(pos.x, pos.y - ir);
+        innerDiamond.lineTo(pos.x + ir, pos.y);
+        innerDiamond.lineTo(pos.x, pos.y + ir);
+        innerDiamond.lineTo(pos.x - ir, pos.y);
+        innerDiamond.closeSubPath();
+        g.fillPath(innerDiamond);
+
+        // Bordo stilografico scuro o evidenziato
+        g.setColour(isHovered ? crayonOchre : (isSelected ? crayonCherry : fountainInk));
+        g.strokePath(diamond, juce::PathStrokeType(isSelected ? 2.2f : 1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+    else if (shapeType == PinShapeType::ModulationTri)
+    {
+        // -------------------------------------------------------------
+        // FORMA: TRIANGOLO (MODULAZIONE KNOB / CV)
+        // -------------------------------------------------------------
+        juce::Path tri;
+        tri.startNewSubPath(pos.x, pos.y - r * 1.15f);
+        tri.lineTo(pos.x + r * 1.05f, pos.y + r * 0.75f);
+        tri.lineTo(pos.x - r * 1.05f, pos.y + r * 0.75f);
+        tri.closeSubPath();
+
+        // Base opaca
+        g.setColour(isDarkMode ? juce::Colour(0xFF1E2126) : juce::Colour(0xFFECE7DE));
+        g.fillPath(tri);
+
+        // Riempimento interno pastello crayon
+        g.setColour(colour);
+        juce::Path innerTri;
+        const float ir = r * 0.55f;
+        innerTri.startNewSubPath(pos.x, pos.y - ir * 1.15f);
+        innerTri.lineTo(pos.x + ir * 1.05f, pos.y + ir * 0.75f);
+        innerTri.lineTo(pos.x - ir * 1.05f, pos.y + ir * 0.75f);
+        innerTri.closeSubPath();
+        g.fillPath(innerTri);
+
+        // Bordo stilografico
+        g.setColour(isHovered ? crayonOchre : (isSelected ? crayonCherry : fountainInk));
+        g.strokePath(tri, juce::PathStrokeType(isSelected ? 2.2f : 1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+    else
+    {
+        // -------------------------------------------------------------
+        // FORMA: CERCHIO (AUDIO STEREO)
+        // -------------------------------------------------------------
+        // Base presa jack
+        g.setColour(isDarkMode ? juce::Colour(0xFF1E2126) : juce::Colour(0xFFECE7DE));
+        g.fillEllipse(pos.x - r, pos.y - r, r * 2.0f, r * 2.0f);
+
+        // Contatto interno inchiostro
+        g.setColour(colour);
+        const float ir = r * 0.55f;
+        g.fillEllipse(pos.x - ir, pos.y - ir, ir * 2.0f, ir * 2.0f);
+
+        // Bordo esterno presa jack
+        g.setColour(isHovered ? crayonOchre : (isSelected ? crayonCherry : fountainInk));
+        g.drawEllipse(pos.x - r, pos.y - r, r * 2.0f, r * 2.0f, isSelected ? 2.2f : 1.6f);
+    }
+}
+
 void MiMOLookAndFeel::drawInkCable(juce::Graphics& g, juce::Point<float> start, juce::Point<float> end,
                                    const std::vector<juce::Point<float>>& freehandNorm,
                                    int seed, int boilTick, bool isModulation,
                                    juce::Colour modColour, bool isHighlighted,
                                    bool isExposeCable,
                                    juce::Point<float> startNormal,
-                                   juce::Point<float> endNormal)
+                                   juce::Point<float> endNormal,
+                                   bool isTrigger,
+                                   float pulseAlpha)
 {
-    const float amp = isModulation ? 2.3f : 1.7f;
+    const float amp = (isModulation || isTrigger) ? 2.3f : 1.7f;
     const auto d1 = createInkCablePath(start, end, freehandNorm, seed, boilTick, amp, startNormal, endNormal);
 
     if (isHighlighted)
     {
-        g.setColour(crayonOchre.withAlpha(0.65f));
+        g.setColour(crayonCherry.withAlpha(0.65f));
         g.strokePath(d1, juce::PathStrokeType(14.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
-    if (!isModulation && !isExposeCable)
+    if (isTrigger)
+    {
+        // Cavo Trigger: linea arancio fiamma con bagliore all'impulso
+        const juce::Colour trigCol = juce::Colour(0xFFFF7A18);
+        if (pulseAlpha > 0.05f)
+        {
+            g.setColour(trigCol.withAlpha(pulseAlpha * 0.70f));
+            g.strokePath(d1, juce::PathStrokeType(10.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        g.setColour(trigCol.withAlpha(0.90f));
+        g.strokePath(d1, juce::PathStrokeType(4.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        // Tratteggio stilografico per evidenziare il flusso a impulsi
+        juce::Path dashed;
+        const float dashLen[2] = { 8.0f, 6.0f };
+        juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded)
+            .createDashedStroke(dashed, d1, dashLen, 2);
+        g.setColour(fountainInk);
+        g.fillPath(dashed);
+    }
+    else if (!isModulation && !isExposeCable)
     {
         // Cavo Audio: passata pulita e decisa a inchiostro stilografico
         g.setColour(fountainInk);

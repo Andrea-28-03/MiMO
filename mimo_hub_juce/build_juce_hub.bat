@@ -47,4 +47,9 @@ echo   BUILD COMPLETATA CON SUCCESSO!
 echo   Eseguibile generato in: mimo_hub_juce\build\MiMOHub_artefacts\Release\MiMO Hub.exe
 echo ====================================================================
 
+if not exist "%LOCALAPPDATA%\MiMOHub" mkdir "%LOCALAPPDATA%\MiMOHub"
+copy /y "%~dp0build\MiMOHub_artefacts\Release\MiMO Hub.exe" "%LOCALAPPDATA%\MiMOHub\MiMO Hub.exe" >nul 2>&1
+echo [OK] Copia locale aggiornata in %%LOCALAPPDATA%%\MiMOHub\MiMO Hub.exe
+echo.
+
 pause

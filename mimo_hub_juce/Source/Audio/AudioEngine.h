@@ -32,7 +32,7 @@ class AudioEngine : public juce::AudioIODeviceCallback
 public:
     AudioEngine()
     {
-        masterGain.store(0.85f);
+        masterGain.store(1.20f);
     }
 
     ~AudioEngine() override
@@ -118,25 +118,78 @@ public:
     }
 
     // Trigger generico da sorgente hardware (es. "hw-drum", "hw-eye", "hw-mic")
-    void triggerFromSource(const juce::String& sourceId, int subVoice, float velocity)
+    void triggerFromSource(const juce::String& sourceId, int subVoice, float velocity, bool isSecondary = false)
     {
         std::vector<juce::String> targetInstruments;
         {
             const std::lock_guard<std::mutex> lock(routeMutex);
+
+            // 1. Cerca prima connessioni trigger dirette esplicite (trigger:out / trigger:*pinch* -> trigger:in)
             for (const auto& r : activeRoutes)
             {
-                if (r.sourceNodeId == sourceId)
+                const bool matchSource = (r.sourceNodeId == sourceId ||
+                                         (sourceId.startsWith("hw-") && r.sourceNodeId.startsWith("hw-drum")) ||
+                                         (sourceId.startsWith("hw-") && r.sourceNodeId.startsWith("hw-mic")));
+
+                bool pinMatches = false;
+                if (r.sourcePinId == "trigger:out")
                 {
-                    // Se la destinazione è la Base Centrale ("rockpi"), propaga ai nodi collegati alla Base
-                    if (r.targetNodeId == "rockpi")
+                    pinMatches = true;
+                }
+                else if (sourceId == "hw-eye")
+                {
+                    if (!isSecondary)
                     {
-                        for (const auto& r2 : activeRoutes)
-                            if (r2.sourceNodeId == "rockpi" && !r2.isModulation)
-                                targetInstruments.push_back(r2.targetNodeId);
+                        if (subVoice == 0 && (r.sourcePinId == "trigger:dx_pinch_idx" || r.sourcePinId == "trigger:pinch_idx" || r.sourcePinId == "trigger:out")) pinMatches = true;
+                        else if (subVoice == 1 && (r.sourcePinId == "trigger:dx_pinch_mid" || r.sourcePinId == "trigger:pinch_mid")) pinMatches = true;
+                        else if (subVoice == 2 && (r.sourcePinId == "trigger:dx_pinch_rng" || r.sourcePinId == "trigger:pinch_rng")) pinMatches = true;
+                        else if (subVoice == 3 && (r.sourcePinId == "trigger:dx_pinch_pky" || r.sourcePinId == "trigger:pinch_pky")) pinMatches = true;
+                        else if (r.sourcePinId.startsWith("trigger:dx_") || r.sourcePinId == "trigger:out") pinMatches = true;
                     }
                     else
                     {
+                        if (subVoice == 0 && (r.sourcePinId == "trigger:sx_pinch_idx" || r.sourcePinId == "trigger:sx_pinch")) pinMatches = true;
+                        else if (subVoice == 1 && r.sourcePinId == "trigger:sx_pinch_mid") pinMatches = true;
+                        else if (subVoice == 2 && r.sourcePinId == "trigger:sx_pinch_rng") pinMatches = true;
+                        else if (subVoice == 3 && r.sourcePinId == "trigger:sx_pinch_pky") pinMatches = true;
+                        else if (r.sourcePinId.startsWith("trigger:sx_")) pinMatches = true;
+                    }
+                    if (r.sourcePinId == "trigger:out") pinMatches = true;
+                }
+                else if (r.sourcePinId.startsWith("trigger:") || r.targetPinId == "trigger:in")
+                {
+                    pinMatches = true;
+                }
+
+                if (matchSource && pinMatches)
+                {
+                    if (std::find(targetInstruments.begin(), targetInstruments.end(), r.targetNodeId) == targetInstruments.end())
                         targetInstruments.push_back(r.targetNodeId);
+                }
+            }
+
+            // 2. Se non ci sono connessioni trigger esplicite, usa il routing convenzionale
+            if (targetInstruments.empty())
+            {
+                for (const auto& r : activeRoutes)
+                {
+                    const bool matchSource = (r.sourceNodeId == sourceId ||
+                                             (sourceId.startsWith("hw-") && r.sourceNodeId.startsWith("hw-drum")) ||
+                                             (sourceId.startsWith("hw-") && r.sourceNodeId.startsWith("hw-mic")));
+
+                    if (matchSource)
+                    {
+                        // Se la destinazione è la Base Centrale ("rockpi"), propaga ai nodi collegati alla Base
+                        if (r.targetNodeId == "rockpi")
+                        {
+                            for (const auto& r2 : activeRoutes)
+                                if (r2.sourceNodeId == "rockpi" && !r2.isModulation)
+                                    targetInstruments.push_back(r2.targetNodeId);
+                        }
+                        else if (!r.isModulation)
+                        {
+                            targetInstruments.push_back(r.targetNodeId);
+                        }
                     }
                 }
             }
@@ -343,7 +396,7 @@ private:
     std::vector<NodeAudioRoute> activeRoutes;
 
     // Parametri Atomici Macro
-    std::atomic<float> masterGain { 0.85f };
+    std::atomic<float> masterGain { 1.20f };
     std::atomic<float> masterPeak { 0.0f };
 
     std::atomic<float> filterCutoffHz { 4500.0f };

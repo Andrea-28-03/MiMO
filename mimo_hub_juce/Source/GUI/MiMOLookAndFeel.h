@@ -61,6 +61,18 @@ public:
     static void drawCrayonHighlight(juce::Graphics& g, juce::Rectangle<float> bounds,
                                     juce::Colour colour, int seed);
 
+    enum class PinShapeType
+    {
+        AudioCircle,      // Cerchio: Flusso segnale audio stereo
+        TriggerDiamond,   // Rombo: Impulso percussivo / trigger colpo
+        ModulationTri     // Triangolo: Control Voltage per manopole / parametri
+    };
+
+    static void drawPinJack(juce::Graphics& g, juce::Point<float> pos, float radius,
+                            PinShapeType shapeType, juce::Colour colour,
+                            bool isHovered = false, bool isSelected = false,
+                            bool isValidDropTarget = false, bool isFiringPulse = false);
+
     static juce::Path createInkCablePath(juce::Point<float> start, juce::Point<float> end,
                                          const std::vector<juce::Point<float>>& freehandNorm,
                                          int seed, int boilTick, float amp = 2.2f,
@@ -73,7 +85,9 @@ public:
                              juce::Colour modColour, bool isHighlighted = false,
                              bool isExposeCable = false,
                              juce::Point<float> startNormal = { 0.0f, 0.0f },
-                             juce::Point<float> endNormal = { 0.0f, 0.0f });
+                             juce::Point<float> endNormal = { 0.0f, 0.0f },
+                             bool isTrigger = false,
+                             float pulseAlpha = 0.0f);
 
     static void drawCrayonKnob(juce::Graphics& g, juce::Rectangle<float> bounds,
                                float normValue, juce::Colour crayonColour,
