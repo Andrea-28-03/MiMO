@@ -68,7 +68,7 @@ public:
         switch (state)
         {
             case State::Attack:
-                val = 1.35f - (1.35f - val) * attCoeff; // Target sovradimensionato per curva d'attacco rapida
+                val = 1.35f - (1.35f - val) * attCoeff;
                 if (val >= 1.0f)
                 {
                     val = 1.0f;
@@ -113,6 +113,50 @@ private:
     float decCoeff = 0.999f;
     float susLevel = 0.7f;
     float relCoeff = 0.999f;
+};
+
+// ============================================================================
+// Utilità PolyBLEP Anti-Aliasing (Vadim Zavalishin & Will Pirkle)
+// ============================================================================
+inline float polyBlep(float t, float dt) noexcept
+{
+    if (t < dt)
+    {
+        t /= dt;
+        return t + t - t * t - 1.0f;
+    }
+    if (t > 1.0f - dt)
+    {
+        t = (t - 1.0f) / dt;
+        return t * t + t + t + 1.0f;
+    }
+    return 0.0f;
+}
+
+// ============================================================================
+// OnePoleSmoother (Filtro passa-basso 1° ordine per parametri continui/pitch)
+// ============================================================================
+class OnePoleSmoother
+{
+public:
+    void reset(double sampleRate, float timeSec) noexcept
+    {
+        coeff = std::exp(-1.0f / (std::max(0.0005f, timeSec) * static_cast<float>(sampleRate)));
+        val = 0.0f;
+        target = 0.0f;
+    }
+    void setTarget(float t) noexcept { target = t; }
+    void setCurrentAndTarget(float v) noexcept { val = v; target = v; }
+    float getNextValue() noexcept
+    {
+        val = target + (val - target) * coeff;
+        return val;
+    }
+    float getCurrentValue() const noexcept { return val; }
+private:
+    float coeff = 0.99f;
+    float val = 0.0f;
+    float target = 0.0f;
 };
 
 } // namespace mimo::dsp

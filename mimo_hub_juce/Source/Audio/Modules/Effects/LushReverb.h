@@ -8,7 +8,7 @@ namespace mimo::dsp
 {
 
 // ============================================================================
-// Effetto: Riverbero Spaziale Diffuso (Comb & Allpass)
+// Effetto: Riverbero Spaziale Diffuso (Standard V2)
 // Riferimenti: Julius O. Smith III & Schroeder-Moorer
 // ============================================================================
 class LushReverb : public mimo::audio::NodeAudioProcessor
@@ -19,7 +19,7 @@ public:
         sr = std::max(8000.0, sampleRate);
         const float scale = static_cast<float>(sr / 44100.0);
 
-        // 4 Comb delays accordati su numeri primi per densità priva di battimenti metallici
+        // 4 Comb delays accordati su numeri primi per densità priva di risonanze metalliche
         const int cDelays[4] = {
             static_cast<int>(1116 * scale),
             static_cast<int>(1188 * scale),
@@ -43,6 +43,9 @@ public:
             allpassBuffers[i].assign(std::max(16, aDelays[i]), 0.0f);
             allpassPos[i] = 0;
         }
+
+        setDryWet(0.35f);
+        setOutputGain(1.0f);
     }
 
     void setParameter(const juce::String& paramKey, float normalizedValue) override
@@ -56,9 +59,13 @@ public:
         {
             damp = 0.05f + v * 0.80f;
         }
-        else if (paramKey == "mix" || paramKey == "reverb_mix")
+        else if (paramKey == "mix" || paramKey == "drywet" || paramKey == "reverb_mix")
         {
-            wetMix = v;
+            setDryWet(v);
+        }
+        else if (paramKey == "vol" || paramKey == "volume")
+        {
+            setOutputGain(v * 1.5f);
         }
     }
 
@@ -66,7 +73,7 @@ public:
     {
         roomSize = juce::jlimit(0.1f, 0.94f, 0.70f + (roomSizePct * 0.01f) * 0.24f);
         damp = juce::jlimit(0.05f, 0.85f, dampingPct * 0.01f);
-        wetMix = juce::jlimit(0.0f, 1.0f, wetDryPct * 0.01f);
+        setDryWet(wetDryPct * 0.01f);
     }
 
     void processBlock(float* left, float* right, int numSamples) noexcept override
@@ -104,9 +111,10 @@ public:
                 diff = pass;
             }
 
-            left[i] = sanitizeSample(inL * (1.0f - wetMix) + diff * wetMix * 1.2f);
+            // Uscita wet pura decorrelata (leggero sfasamento stereo naturale)
+            left[i] = sanitizeSample(diff * 1.35f);
             if (right != nullptr)
-                right[i] = sanitizeSample(inR * (1.0f - wetMix) + diff * wetMix * 1.2f);
+                right[i] = sanitizeSample((diff + combBuffers[1][combPos[1]] * 0.15f) * 1.35f);
         }
     }
 
@@ -121,7 +129,6 @@ private:
 
     float roomSize = 0.82f;
     float damp = 0.35f;
-    float wetMix = 0.30f;
 };
 
 } // namespace mimo::dsp

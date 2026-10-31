@@ -464,14 +464,16 @@ CanvasNode CanvasGraphHelper::createFxNodeFromCatalog(const CatalogItem& fx, juc
     node.id = fx.id + "-" + juce::String(uniqueSeed);
     node.type = NodeType::NestedEffect;
     node.label = fx.name;
-    node.subtitle = "Nodo Nested - Doppio clic per aprire";
+    node.subtitle = fx.category.isNotEmpty() ? (fx.category + " - " + fx.hint) : "Effetto Modulare V2";
     node.pos = worldPos;
     node.targetPos = worldPos;
     node.isAnimatingPos = false;
     node.isVerticalFlow = isVertical;
-    node.size = isVertical ? juce::Point<float>{ 245.0f, 165.0f } : juce::Point<float>{ 260.0f, 165.0f };
+    node.size = isVertical ? juce::Point<float>{ 245.0f, 175.0f } : juce::Point<float>{ 265.0f, 175.0f };
     node.crayonColour = fx.colour;
     node.innerBlocks = fx.templateBlocks;
+    node.isBypassed = false;
+    node.peakLevel = 0.0f;
     return node;
 }
 
@@ -486,27 +488,46 @@ CanvasNode CanvasGraphHelper::createInstrumentNodeFromCatalog(const CatalogItem&
     node.targetPos = worldPos;
     node.isAnimatingPos = false;
     node.isVerticalFlow = false;
-    node.size = { 280.0f, 165.0f };
+    node.size = { 285.0f, 175.0f };
     node.crayonColour = item.colour;
     node.hasInstrument = true;
     node.instrumentName = item.name;
     node.instrumentEngine = item.engine;
+    node.isBypassed = false;
+    node.peakLevel = 0.0f;
 
-    // Macro Flat Pastello essenziali per sound design immediato
+    // Macro Flat Pastello dedicate per strumento V2
     if (item.category.containsIgnoreCase("Percussion") || item.id.containsIgnoreCase("kit") || item.id.containsIgnoreCase("drum"))
     {
         node.directParams = {
-            { "vol",   "Volume",   0.0f, 1.5f, 0.95f, 0.95f, "",     true },
-            { "pitch", "Accordo", -12.0f, 12.0f, 0.0f, 0.0f, " st", true },
-            { "decay", "Decay",   0.05f, 1.2f, 0.35f, 0.35f, " s",  true }
+            { "vol",   "Volume",   0.0f, 1.5f, 1.0f, 1.0f, "",     true },
+            { "pitch", "Pitch",   -12.0f, 12.0f, 0.0f, 0.0f, " st", true },
+            { "decay", "Decay",   0.05f, 2.0f, 0.45f, 0.45f, " s",  true }
         };
     }
-    else
+    else if (item.id.containsIgnoreCase("theremin"))
     {
         node.directParams = {
-            { "vol",    "Volume", 0.0f, 1.5f, 0.95f, 0.95f, "",     true },
-            { "cutoff", "Cutoff", 100.0f, 14000.0f, 3200.0f, 3200.0f, " Hz", true },
-            { "decay",  "Decay",  0.1f, 3.0f, 0.65f, 0.65f, " s",   true }
+            { "vol",   "Volume", 0.0f, 1.5f, 1.0f, 1.0f, "",    true },
+            { "scale", "Scala",  0.0f, 5.0f, 1.0f, 1.0f, "",    true },
+            { "decay", "Glide",  0.01f, 0.2f, 0.045f, 0.045f, " s", true }
+        };
+    }
+    else if (item.id.containsIgnoreCase("karplus") || item.id.containsIgnoreCase("pluck") || item.id.containsIgnoreCase("box"))
+    {
+        node.directParams = {
+            { "vol",    "Volume",     0.0f, 1.5f, 1.0f, 1.0f, "",     true },
+            { "decay",  "Damping",    0.1f, 4.0f, 1.5f, 1.5f, " s",   true },
+            { "cutoff", "Brilliance", 200.0f, 12000.0f, 4500.0f, 4500.0f, " Hz", true }
+        };
+    }
+    else // Synth VA / Felt Piano
+    {
+        node.directParams = {
+            { "vol",    "Volume",    0.0f, 1.5f, 1.0f, 1.0f, "",     true },
+            { "cutoff", "Cutoff",    40.0f, 14000.0f, 3200.0f, 3200.0f, " Hz", true },
+            { "res",    "Risonanza", 0.1f, 10.0f, 1.4f, 1.4f, "",    true },
+            { "decay",  "Decay",     0.1f, 3.0f, 0.65f, 0.65f, " s",  true }
         };
     }
     return node;

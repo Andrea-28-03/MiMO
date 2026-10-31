@@ -130,6 +130,8 @@ struct CanvasNode
     bool isVerticalFlow = false; // Se true: audio:in dal basso, audio:out dall'alto
     bool isIntegratedMic = false;
     bool isIntegratedCamera = false;
+    bool isBypassed = false;
+    float peakLevel = 0.0f;
 };
 
 struct CanvasCable
@@ -238,6 +240,16 @@ struct CanvasGraphHelper
 {
     static CanvasNode createFxNodeFromCatalog(const CatalogItem& fx, juce::Point<float> worldPos, int uniqueSeed, bool isVertical = false);
     static CanvasNode createInstrumentNodeFromCatalog(const CatalogItem& item, juce::Point<float> worldPos, int uniqueSeed = 1);
+
+    static inline juce::Rectangle<float> getBypassButtonBounds(const juce::Rectangle<float>& box) noexcept
+    {
+        return { box.getRight() - 50.0f, box.getY() + 8.0f, 20.0f, 18.0f };
+    }
+
+    static inline juce::Rectangle<float> getVuMeterBounds(const juce::Rectangle<float>& box) noexcept
+    {
+        return { box.getX() + 14.0f, box.getBottom() - 10.0f, box.getWidth() - 28.0f, 4.0f };
+    }
 };
 
 } // namespace mimo

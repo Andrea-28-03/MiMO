@@ -35,9 +35,15 @@ target_sources(MiMOHub PRIVATE
     Source/Audio/NodeAudioProcessor.h
     Source/Audio/Modules/Instruments/AnalogDrumVoice.h
     Source/Audio/Modules/Instruments/MelodicSynthVoice.h
+    Source/Audio/Modules/Instruments/Theremin3DVoice.h
+    Source/Audio/Modules/Instruments/KarplusPluckVoice.h
     Source/Audio/Modules/Effects/SVFFilter.h
+    Source/Audio/Modules/Effects/SoftSaturator.h
     Source/Audio/Modules/Effects/StereoTapeDelay.h
     Source/Audio/Modules/Effects/LushReverb.h
+    Source/Audio/Modules/Utilities/ScaleLock.h
+    Source/Audio/Modules/Utilities/EnvelopeFollower.h
+    Source/Audio/Modules/Utilities/TapeLooperProcessor.h
     Source/GUI/MiMOLookAndFeel.h
     Source/GUI/MiMOLookAndFeel.cpp
     Source/GUI/CanvasGraph.h
@@ -85,6 +91,3 @@ target_link_libraries(MiMOHub PRIVATE
     juce::juce_osc
     juce::juce_video
 )
-
-
-

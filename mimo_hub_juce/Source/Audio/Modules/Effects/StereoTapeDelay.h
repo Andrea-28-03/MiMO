@@ -8,7 +8,7 @@ namespace mimo::dsp
 {
 
 // ============================================================================
-// Effetto: Stereo Tape Delay con Damping
+// Effetto: Stereo Tape Delay con Damping (Standard V2)
 // Riferimenti: Udo Zölzer ("DAFX", Cap. 2)
 // ============================================================================
 class StereoTapeDelay : public mimo::audio::NodeAudioProcessor
@@ -23,6 +23,9 @@ public:
         writePos = 0;
         dampL = 0.0f;
         dampR = 0.0f;
+        delayTimeSamples = static_cast<float>(sr) * 0.32f; // ~320 ms
+        setDryWet(0.35f);
+        setOutputGain(1.0f);
     }
 
     void setParameter(const juce::String& paramKey, float normalizedValue) override
@@ -43,9 +46,13 @@ public:
             const float dampFreq = 300.0f + v * 15000.0f;
             dampCoeff = std::exp(-juce::MathConstants<float>::twoPi * dampFreq / static_cast<float>(sr));
         }
-        else if (paramKey == "mix" || paramKey == "wet")
+        else if (paramKey == "mix" || paramKey == "drywet" || paramKey == "wet")
         {
-            wetMix = v;
+            setDryWet(v);
+        }
+        else if (paramKey == "vol" || paramKey == "volume")
+        {
+            setOutputGain(v * 1.5f);
         }
     }
 
@@ -53,7 +60,7 @@ public:
     {
         delayTimeSamples = juce::jlimit(1.0f, static_cast<float>(bufferL.size() - 2), timeMs * 0.001f * static_cast<float>(sr));
         feedback = juce::jlimit(0.0f, 0.94f, feedbackPct * 0.01f);
-        wetMix = juce::jlimit(0.0f, 1.0f, wetDryPct * 0.01f);
+        setDryWet(wetDryPct * 0.01f);
 
         // Coefficiente di smorzamento nastro a un polo
         const float dampFreq = juce::jlimit(300.0f, 18000.0f, dampingCutoffHz);
@@ -97,9 +104,9 @@ public:
 
             writePos = (writePos + 1) % bufSize;
 
-            left[i] = sanitizeSample(inL * (1.0f - wetMix) + delayedL * wetMix);
+            left[i] = sanitizeSample(delayedL);
             if (right != nullptr)
-                right[i] = sanitizeSample(inR * (1.0f - wetMix) + delayedR * wetMix);
+                right[i] = sanitizeSample(delayedR);
         }
     }
 
@@ -109,10 +116,9 @@ private:
     std::vector<float> bufferR;
     int writePos = 0;
 
-    float delayTimeSamples = 18000.0f;
+    float delayTimeSamples = 16000.0f;
     float feedback = 0.45f;
-    float wetMix = 0.35f;
-    float dampCoeff = 0.35f;
+    float dampCoeff = 0.5f;
     float dampL = 0.0f;
     float dampR = 0.0f;
 };

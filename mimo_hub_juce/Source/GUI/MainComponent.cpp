@@ -1628,6 +1628,22 @@ void MainComponent::timerCallback()
         }
     }
 
+    // Aggiornamento VU-Meter con decadimento analogico fluido
+    for (auto& n : nodes)
+    {
+        const float pk = audioEngine.getNodePeak(n.id);
+        const float prev = n.peakLevel;
+        n.peakLevel = std::max(pk, prev * 0.82f);
+        if (std::abs(n.peakLevel - prev) > 0.012f)
+            needsRepaint = true;
+    }
+
+    // Controllo 3D continuo per Theremin
+    if (latestEyeState.hasHand)
+        audioEngine.setHand3D(latestEyeState.palmX, latestEyeState.palmY, latestEyeState.palmZ, true);
+    else
+        audioEngine.setHand3D(0.5f, 0.5f, 0.5f, false);
+
     const float pulse = triggerPulseAlpha.load();
     if (pulse > 0.02f)
     {
@@ -1641,97 +1657,95 @@ void MainComponent::timerCallback()
 void MainComponent::initCatalogs()
 {
     instrumentCatalog = {
-        { "ins-kit-vintage", "Percussioni",       "Kit Acustico Vintage", "sfizz", "24 layer multi-velocity", MiMOLookAndFeel::crayonCherry, false, {} },
-        { "ins-toy-drums",   "Percussioni",       "Tamburi Giocattolo",   "sfizz", "latta, legno e sonagli",  MiMOLookAndFeel::crayonPeach,  false, {} },
-        { "ins-felt-piano",  "Tastiere & SFZ",    "Piano Feltro",         "sfizz", "Pianobook - morbido",     MiMOLookAndFeel::crayonLilac,  false, {} },
-        { "ins-music-box",   "Tastiere & SFZ",    "Carillon a Manovella", "sfizz", "lamelle metalliche",      MiMOLookAndFeel::crayonMint,   false, {} },
-        { "ins-theremin",    "Sintesi Faust 3D",  "Theremin Nuvola",      "Faust", "ideale per Modulo Occhio",MiMOLookAndFeel::crayonCyan,   false, {} },
-        { "ins-chalk-pad",   "Sintesi Faust 3D",  "Pad Gessetto",         "Faust", "sintesi granulare",       MiMOLookAndFeel::crayonSage,   false, {} }
+        { "ins-drum-analog",   "Percussioni",       "Kit Analogico",        "Faust", "4 voci percussive discrete", MiMOLookAndFeel::crayonCherry, false, {} },
+        { "ins-theremin-3d",   "Sintesi Gestuale",  "Theremin 3D",          "Faust", "Controllo spaziale fluido",  MiMOLookAndFeel::crayonCyan,   false, {} },
+        { "ins-karplus-pluck", "Corde & Lamelle",   "Kalimba & Pluck",      "Faust", "Waveguide fisico a corda",   MiMOLookAndFeel::crayonMint,   false, {} },
+        { "ins-synth-va",      "Sintesi VA",        "Virtual Analog Synth", "Faust", "PolyBLEP lead & sub-bass",  MiMOLookAndFeel::crayonPeach,  false, {} },
+        { "ins-kit-vintage",   "Percussioni",       "Kit Acustico Vintage", "sfizz", "24 layer multi-velocity",    MiMOLookAndFeel::crayonCherry, false, {} },
+        { "ins-felt-piano",    "Tastiere & SFZ",    "Piano Feltro",         "sfizz", "Pianobook - morbido",        MiMOLookAndFeel::crayonLilac,  false, {} },
+        { "ins-toy-drums",     "Percussioni",       "Tamburi Giocattolo",   "sfizz", "latta, legno e sonagli",     MiMOLookAndFeel::crayonPeach,  false, {} },
+        { "ins-music-box",     "Tastiere & SFZ",    "Carillon a Manovella", "sfizz", "lamelle metalliche",         MiMOLookAndFeel::crayonMint,   false, {} }
     };
 
-    // Catalogo Effetti (ognuno è un Nodo Nested con la propria architettura interna Faust DSP)
+    // Catalogo Effetti Standard V2 (Mix Dry/Wet e Volume su TUTTI gli effetti)
     {
         CatalogItem filtro;
-        filtro.id = "fx-filtro-naif";
+        filtro.id = "fx-filtro-svf";
         filtro.category = "Filtri";
-        filtro.name = "Filtro Naif";
+        filtro.name = "Filtro ZDF SVF";
         filtro.engine = "Faust";
-        filtro.hint = "SVF risonante + LFO";
+        filtro.hint = "SVF risonante analogico";
         filtro.colour = MiMOLookAndFeel::crayonCyan;
         filtro.isEffect = true;
         filtro.templateBlocks = {
-            { "b0", "Pre-Gain", "process = *(ba.db2linear(drive));", MiMOLookAndFeel::crayonPeach, false, { 280.0f, 160.0f },
-              { { "drive", "Drive", 0.0f, 24.0f, 6.0f, 6.0f, " dB", false } } },
-            { "b1", "SVF Passa-Basso", "process = fi.resonlp(cutoff, q, 1);", MiMOLookAndFeel::crayonCyan, false, { 540.0f, 150.0f },
-              { { "cutoff", "Cutoff", 20.0f, 20000.0f, 1800.0f, 1800.0f, " Hz", true },
+            { "b0", "SVF Filtro", "process = fi.resonlp(cutoff, q, 1);", MiMOLookAndFeel::crayonCyan, false, { 320.0f, 150.0f },
+              { { "cutoff", "Cutoff", 20.0f, 18000.0f, 1800.0f, 1800.0f, " Hz", true },
                 { "res",    "Risonanza", 0.1f, 10.0f, 1.4f, 1.4f, "", true } } },
-            { "b2", "Mix Dry/Wet", "process = _ <: *(1-mix), *(mix) :> _;", MiMOLookAndFeel::crayonSage, false, { 820.0f, 160.0f },
-              { { "mix", "Mix", 0.0f, 100.0f, 100.0f, 100.0f, " %", true } } },
-            { "lfo", "LFO Interno", "lfo = os.osc(rate) * depth;", MiMOLookAndFeel::crayonLilac, true, { 540.0f, 390.0f },
-              { { "rate",  "LFO Rate",  0.05f, 12.0f, 0.8f, 0.8f, " Hz", false },
-                { "depth", "LFO Depth", 0.0f, 100.0f, 30.0f, 30.0f, " %", false } } }
+            { "b1", "Mix & Vol", "process = _ <: *(1-mix), *(mix) :> _ * vol;", MiMOLookAndFeel::crayonSage, false, { 620.0f, 160.0f },
+              { { "mix", "Mix", 0.0f, 100.0f, 100.0f, 100.0f, " %", true },
+                { "vol", "Volume", 0.0f, 150.0f, 100.0f, 100.0f, " %", true } } }
         };
         effectCatalog.push_back(filtro);
     }
 
     {
-        CatalogItem rev;
-        rev.id = "fx-riverbero";
-        rev.category = "Spazio";
-        rev.name = "Riverbero Cattedrale";
-        rev.engine = "Faust";
-        rev.hint = "Freeverb + Pre-Delay";
-        rev.colour = MiMOLookAndFeel::crayonLilac;
-        rev.isEffect = true;
-        rev.templateBlocks = {
-            { "b0", "Pre-Delay", "process = de.sdelay(48000, 1024, pre);", MiMOLookAndFeel::crayonOchre, false, { 290.0f, 180.0f },
-              { { "pre", "Pre-Delay", 0.0f, 250.0f, 30.0f, 30.0f, " ms", false } } },
-            { "b1", "Freeverb", "process = re.mono_freeverb(room, 0.5, damp, 23);", MiMOLookAndFeel::crayonLilac, false, { 560.0f, 170.0f },
-              { { "room", "Stanza", 0.0f, 100.0f, 78.0f, 78.0f, " %", true },
-                { "damp", "Smorzam.", 0.0f, 100.0f, 40.0f, 40.0f, " %", true } } },
-            { "b2", "Mix Dry/Wet", "process = _ <: *(1-mix), *(mix) :> _;", MiMOLookAndFeel::crayonSage, false, { 830.0f, 180.0f },
-              { { "mix", "Mix", 0.0f, 100.0f, 35.0f, 35.0f, " %", true } } }
+        CatalogItem sat;
+        sat.id = "fx-saturazione-soft";
+        sat.category = "Colore";
+        sat.name = "Saturazione Pastello";
+        sat.engine = "Faust";
+        sat.hint = "Overdrive a nastro morbido";
+        sat.colour = MiMOLookAndFeel::crayonPeach;
+        sat.isEffect = true;
+        sat.templateBlocks = {
+            { "b0", "Saturatore", "process = ef.cubicnl(drive, 0);", MiMOLookAndFeel::crayonPeach, false, { 320.0f, 180.0f },
+              { { "drive", "Drive", 0.0f, 36.0f, 12.0f, 12.0f, " dB", true },
+                { "tone",  "Tono",  400.0f, 16000.0f, 6500.0f, 6500.0f, " Hz", true } } },
+            { "b1", "Mix & Vol", "process = _ * vol;", MiMOLookAndFeel::crayonSage, false, { 620.0f, 180.0f },
+              { { "mix", "Mix", 0.0f, 100.0f, 100.0f, 100.0f, " %", true },
+                { "vol", "Volume", 0.0f, 150.0f, 100.0f, 100.0f, " %", true } } }
         };
-        effectCatalog.push_back(rev);
+        effectCatalog.push_back(sat);
     }
 
     {
         CatalogItem delay;
         delay.id = "fx-eco-nastro";
         delay.category = "Spazio";
-        delay.name = "Eco Sbiadito";
+        delay.name = "Eco a Nastro Ping-Pong";
         delay.engine = "Faust";
-        delay.hint = "Delay a nastro + Wow";
+        delay.hint = "Delay analogico con smorzamento";
         delay.colour = MiMOLookAndFeel::crayonMint;
         delay.isEffect = true;
         delay.templateBlocks = {
             { "b0", "Delay a Nastro", "process = +~(de.fdelay(48000, time) * fb);", MiMOLookAndFeel::crayonMint, false, { 320.0f, 170.0f },
               { { "time", "Tempo", 20.0f, 1200.0f, 380.0f, 380.0f, " ms", true },
                 { "fb",   "Feedback", 0.0f, 95.0f, 45.0f, 45.0f, " %", true } } },
-            { "b1", "Usura Nastro", "process = fi.lowpass(2, tone);", MiMOLookAndFeel::crayonOchre, false, { 640.0f, 170.0f },
-              { { "tone", "Tono", 400.0f, 12000.0f, 3500.0f, 3500.0f, " Hz", true },
-                { "wow",  "Wow & Flutter", 0.0f, 100.0f, 20.0f, 20.0f, " %", false } } }
+            { "b1", "Mix & Vol", "process = fi.lowpass(2, tone);", MiMOLookAndFeel::crayonOchre, false, { 620.0f, 170.0f },
+              { { "mix", "Mix", 0.0f, 100.0f, 35.0f, 35.0f, " %", true },
+                { "vol", "Volume", 0.0f, 150.0f, 100.0f, 100.0f, " %", true } } }
         };
         effectCatalog.push_back(delay);
     }
 
     {
-        CatalogItem sat;
-        sat.id = "fx-saturazione";
-        sat.category = "Colore";
-        sat.name = "Saturazione Pastello";
-        sat.engine = "Faust";
-        sat.hint = "Overdrive morbido";
-        sat.colour = MiMOLookAndFeel::crayonPeach;
-        sat.isEffect = true;
-        sat.templateBlocks = {
-            { "b0", "Soft Clip", "process = ef.cubicnl(drive, 0);", MiMOLookAndFeel::crayonPeach, false, { 320.0f, 180.0f },
-              { { "drive", "Drive", 0.0f, 36.0f, 12.0f, 12.0f, " dB", true },
-                { "shape", "Curva", 0.0f, 100.0f, 45.0f, 45.0f, " %", false } } },
-            { "b1", "Filtro Tono", "process = fi.lowpass(1, tone);", MiMOLookAndFeel::crayonOchre, false, { 640.0f, 180.0f },
-              { { "tone", "Tono", 500.0f, 16000.0f, 6200.0f, 6200.0f, " Hz", true } } }
+        CatalogItem rev;
+        rev.id = "fx-riverbero-fdn";
+        rev.category = "Spazio";
+        rev.name = "Riverbero Lush FDN";
+        rev.engine = "Faust";
+        rev.hint = "Ambiente diffuso denso";
+        rev.colour = MiMOLookAndFeel::crayonLilac;
+        rev.isEffect = true;
+        rev.templateBlocks = {
+            { "b0", "Ambiente", "process = re.mono_freeverb(room, 0.5, damp, 23);", MiMOLookAndFeel::crayonLilac, false, { 320.0f, 170.0f },
+              { { "room", "Stanza", 0.0f, 100.0f, 75.0f, 75.0f, " %", true },
+                { "damp", "Smorzam.", 0.0f, 100.0f, 40.0f, 40.0f, " %", true } } },
+            { "b1", "Mix & Vol", "process = _ <: *(1-mix), *(mix) :> _;", MiMOLookAndFeel::crayonSage, false, { 620.0f, 180.0f },
+              { { "mix", "Mix", 0.0f, 100.0f, 35.0f, 35.0f, " %", true },
+                { "vol", "Volume", 0.0f, 150.0f, 100.0f, 100.0f, " %", true } } }
         };
-        effectCatalog.push_back(sat);
+        effectCatalog.push_back(rev);
     }
 }
 
@@ -1748,7 +1762,22 @@ void MainComponent::syncAudioRoutes()
         r.isModulation = c.isModulation;
         routes.push_back(r);
     }
-    audioEngine.syncGraphRoutes(routes);
+
+    std::vector<mimo::audio::NodeGraphDescriptor> descriptors;
+    for (const auto& n : nodes)
+    {
+        mimo::audio::NodeGraphDescriptor d;
+        d.id = n.id;
+        d.label = n.label;
+        d.engine = n.instrumentEngine;
+        d.isEffect = (n.type == NodeType::NestedEffect);
+        d.isInstrument = (n.type == NodeType::InstrumentNode || n.hasInstrument);
+        d.isUtility = n.id.startsWithIgnoreCase("ut-") || n.id.startsWithIgnoreCase("mod-");
+        d.isBypassed = n.isBypassed;
+        descriptors.push_back(d);
+    }
+
+    audioEngine.syncGraph(descriptors, routes);
 }
 
 void MainComponent::initDefaultStudioGraph()
@@ -3915,6 +3944,26 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
         g.setFont(juce::Font(10.5f, juce::Font::bold));
         g.drawText("X", closeBtn.toNearestInt(), juce::Justification::centred);
 
+        // Pulsante Power / Bypass con LED luminoso
+        const auto pwrBtn = CanvasGraphHelper::getBypassButtonBounds(box);
+        MiMOLookAndFeel::drawSketchBox(g, pwrBtn, seed + 101, node.isBypassed ? MiMOLookAndFeel::paperBg : MiMOLookAndFeel::crayonSage, node.isBypassed ? 0.35f : 0.80f);
+        g.setColour(node.isBypassed ? MiMOLookAndFeel::inkMuted.withAlpha(0.4f) : juce::Colour(0xFF55E678));
+        g.fillEllipse(pwrBtn.getCentreX() - 3.5f, pwrBtn.getCentreY() - 3.5f, 7.0f, 7.0f);
+
+        // Mini VU-Meter real-time
+        const auto vuBox = CanvasGraphHelper::getVuMeterBounds(box);
+        g.setColour(isDarkMode ? juce::Colour(0xFF222630) : juce::Colour(0xFFE4E8EE));
+        g.fillRoundedRectangle(vuBox, 2.0f);
+        const float peakVal = juce::jlimit(0.0f, 1.0f, node.peakLevel);
+        if (peakVal > 0.005f)
+        {
+            const float w = vuBox.getWidth() * peakVal;
+            juce::Rectangle<float> fill(vuBox.getX(), vuBox.getY(), w, vuBox.getHeight());
+            const juce::Colour peakCol = peakVal > 0.85f ? MiMOLookAndFeel::crayonCherry : (peakVal > 0.6f ? MiMOLookAndFeel::crayonOchre : MiMOLookAndFeel::crayonSage);
+            g.setColour(peakCol);
+            g.fillRoundedRectangle(fill, 2.0f);
+        }
+
         g.setColour(MiMOLookAndFeel::fountainInk);
         g.setFont(juce::Font(15.0f, juce::Font::bold));
         g.drawText(node.label, static_cast<int>(box.getX() + 14), static_cast<int>(box.getY() + 10), 160, 20, juce::Justification::centredLeft);
@@ -3979,6 +4028,26 @@ void MainComponent::paintCanvasNode(juce::Graphics& g, const CanvasNode& node)
         g.setColour(MiMOLookAndFeel::fountainInk);
         g.setFont(juce::Font(10.5f, juce::Font::bold));
         g.drawText("X", closeBtn.toNearestInt(), juce::Justification::centred);
+
+        // Pulsante Power / Mute con LED luminoso
+        const auto pwrBtn = CanvasGraphHelper::getBypassButtonBounds(box);
+        MiMOLookAndFeel::drawSketchBox(g, pwrBtn, seed + 101, node.isBypassed ? MiMOLookAndFeel::paperBg : MiMOLookAndFeel::crayonSage, node.isBypassed ? 0.35f : 0.80f);
+        g.setColour(node.isBypassed ? MiMOLookAndFeel::inkMuted.withAlpha(0.4f) : juce::Colour(0xFF55E678));
+        g.fillEllipse(pwrBtn.getCentreX() - 3.5f, pwrBtn.getCentreY() - 3.5f, 7.0f, 7.0f);
+
+        // Mini VU-Meter real-time
+        const auto vuBox = CanvasGraphHelper::getVuMeterBounds(box);
+        g.setColour(isDarkMode ? juce::Colour(0xFF222630) : juce::Colour(0xFFE4E8EE));
+        g.fillRoundedRectangle(vuBox, 2.0f);
+        const float peakVal = juce::jlimit(0.0f, 1.0f, node.peakLevel);
+        if (peakVal > 0.005f)
+        {
+            const float w = vuBox.getWidth() * peakVal;
+            juce::Rectangle<float> fill(vuBox.getX(), vuBox.getY(), w, vuBox.getHeight());
+            const juce::Colour peakCol = peakVal > 0.85f ? MiMOLookAndFeel::crayonCherry : (peakVal > 0.6f ? MiMOLookAndFeel::crayonOchre : MiMOLookAndFeel::crayonSage);
+            g.setColour(peakCol);
+            g.fillRoundedRectangle(fill, 2.0f);
+        }
 
         // Badge pillola pastello "STRUMENTO"
         juce::Rectangle<float> badge(box.getX() + 12.0f, box.getY() + 8.0f, 75.0f, 18.0f);
@@ -6544,6 +6613,19 @@ void MainComponent::mouseDown(const juce::MouseEvent& e)
                 {
                     deleteNode(n.id);
                     return;
+                }
+
+                // Pulsante Power / Bypass
+                if (n.type == NodeType::InstrumentNode || n.type == NodeType::NestedEffect)
+                {
+                    const auto pwrBtn = CanvasGraphHelper::getBypassButtonBounds(box);
+                    if (pwrBtn.contains(worldPt))
+                    {
+                        nodes[static_cast<size_t>(i)].isBypassed = !nodes[static_cast<size_t>(i)].isBypassed;
+                        audioEngine.setNodeBypass(n.id, nodes[static_cast<size_t>(i)].isBypassed);
+                        repaint();
+                        return;
+                    }
                 }
             }
 

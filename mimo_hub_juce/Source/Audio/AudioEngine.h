@@ -3,11 +3,11 @@
 #include "AudioDSP.h"
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_basics/juce_audio_basics.h>
-#include <unordered_map>
 #include <vector>
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <algorithm>
 
 namespace mimo::audio
 {
@@ -25,11 +25,48 @@ struct NodeAudioRoute
 };
 
 // ============================================================================
+// Descrittore di un Nodo nel Grafo Audio (disaccoppiato dalla GUI)
+// ============================================================================
+struct NodeGraphDescriptor
+{
+    juce::String id;
+    juce::String label;
+    juce::String category;
+    juce::String engine;
+    bool isEffect = false;
+    bool isInstrument = false;
+    bool isUtility = false;
+    bool isBypassed = false;
+};
+
+// ============================================================================
 // Motore Audio Modulare di MiMO Hub (C++20 / JUCE)
+// Architettura V2: Grafo Dinamico di Processori DSP con Routing Reale
 // ============================================================================
 class AudioEngine : public juce::AudioIODeviceCallback
 {
 public:
+    struct GraphNode
+    {
+        juce::String id;
+        juce::String label;
+        juce::String category;
+        juce::String engine;
+        bool isInstrument = false;
+        bool isEffect = false;
+        bool isUtility = false;
+
+        std::unique_ptr<NodeAudioProcessor> processor;
+        std::atomic<bool> isBypassed { false };
+        std::atomic<float> outputGain { 1.0f };
+        std::atomic<float> dryWet { 1.0f };
+        std::atomic<float> realtimePeak { 0.0f };
+
+        // Buffer audio pre-allocati per rendering a 0 allocazioni real-time
+        std::vector<float> bufferL;
+        std::vector<float> bufferR;
+    };
+
     AudioEngine()
     {
         masterGain.store(1.20f);
@@ -49,7 +86,6 @@ public:
         if (deviceManager == nullptr)
             deviceManager = std::make_unique<juce::AudioDeviceManager>();
 
-        // Inizializza 0 ingressi (il microfono può usare il proprio canale o integrarsi) e 2 uscite stereo
         juce::AudioDeviceManager::AudioDeviceSetup setup;
         setup.sampleRate = sampleRate;
         setup.bufferSize = bufferSize;
@@ -57,7 +93,6 @@ public:
         const auto result = deviceManager->initialise(0, 2, nullptr, true);
         if (result.isNotEmpty())
         {
-            // Fallback con impostazioni standard WASAPI/DirectSound
             deviceManager->initialiseWithDefaultDevices(0, 2);
         }
 
@@ -84,8 +119,9 @@ public:
     void resetDSP(double sampleRate)
     {
         currentSampleRate = std::max(8000.0, sampleRate);
-        const std::lock_guard<std::mutex> lock(dspMutex);
+        const std::lock_guard<std::mutex> lock(graphMutex);
 
+        // Reset processori standalone di riserva
         drumKit.reset(currentSampleRate);
         synthVoice.reset(currentSampleRate);
         subVoice.reset(currentSampleRate);
@@ -94,18 +130,158 @@ public:
         svfFilterR.reset(currentSampleRate);
         tapeDelay.reset(currentSampleRate);
         reverb.reset(currentSampleRate);
+
+        // Reset tutti i nodi nel grafo dinamico
+        for (auto& node : graphNodes)
+        {
+            if (node->processor != nullptr)
+                node->processor->reset(currentSampleRate);
+            node->bufferL.assign(2048, 0.0f);
+            node->bufferR.assign(2048, 0.0f);
+        }
     }
 
     // ========================================================================
-    // Gestione Nodi e Connessioni (Aggiornati dal Canvas in modo Thread-Safe)
+    // Sincronizzazione Dinamica del Grafo Audio (Thread-Safe)
     // ========================================================================
-    void syncGraphRoutes(const std::vector<NodeAudioRoute>& routes)
+    void syncGraph(const std::vector<NodeGraphDescriptor>& descriptors, const std::vector<NodeAudioRoute>& routes)
     {
-        const std::lock_guard<std::mutex> lock(routeMutex);
+        std::vector<std::shared_ptr<GraphNode>> newNodes;
+
+        for (const auto& d : descriptors)
+        {
+            // Cerca se esiste già un nodo attivo con lo stesso ID
+            std::shared_ptr<GraphNode> existingNode;
+            {
+                const std::lock_guard<std::mutex> lock(graphMutex);
+                for (const auto& n : graphNodes)
+                {
+                    if (n->id == d.id)
+                    {
+                        existingNode = n;
+                        break;
+                    }
+                }
+            }
+
+            if (existingNode != nullptr)
+            {
+                // Riutilizza il nodo esistente per preservare lo stato dei buffer/code
+                existingNode->isBypassed.store(d.isBypassed);
+                if (existingNode->processor != nullptr)
+                    existingNode->processor->setBypass(d.isBypassed);
+                newNodes.push_back(existingNode);
+            }
+            else
+            {
+                // Crea nuovo nodo con il relativo processore DSP
+                auto node = std::make_shared<GraphNode>();
+                node->id = d.id;
+                node->label = d.label;
+                node->category = d.category;
+                node->engine = d.engine;
+                node->isInstrument = d.isInstrument;
+                node->isEffect = d.isEffect;
+                node->isUtility = d.isUtility;
+                node->isBypassed.store(d.isBypassed);
+
+                node->processor = createProcessorForNode(d.id, d.label, d.category, d.engine);
+                if (node->processor != nullptr)
+                {
+                    node->processor->reset(currentSampleRate);
+                    node->processor->setBypass(d.isBypassed);
+                }
+                node->bufferL.assign(2048, 0.0f);
+                node->bufferR.assign(2048, 0.0f);
+
+                newNodes.push_back(node);
+            }
+        }
+
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        graphNodes = std::move(newNodes);
         activeRoutes = routes;
     }
 
-    // Trigger manuale o da modulo hardware (Fan-in)
+    void syncGraphRoutes(const std::vector<NodeAudioRoute>& routes)
+    {
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        activeRoutes = routes;
+    }
+
+    // ========================================================================
+    // Controlli Standard V2 per Nodo: Volume, Dry/Wet, Bypass, VU-Meter
+    // ========================================================================
+    void setNodeVolume(const juce::String& nodeId, float gainLinear)
+    {
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        for (auto& node : graphNodes)
+        {
+            if (node->id == nodeId)
+            {
+                node->outputGain.store(gainLinear);
+                if (node->processor != nullptr)
+                    node->processor->setOutputGain(gainLinear);
+                break;
+            }
+        }
+    }
+
+    void setNodeDryWet(const juce::String& nodeId, float mixNormalized)
+    {
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        for (auto& node : graphNodes)
+        {
+            if (node->id == nodeId)
+            {
+                node->dryWet.store(mixNormalized);
+                if (node->processor != nullptr)
+                    node->processor->setDryWet(mixNormalized);
+                break;
+            }
+        }
+    }
+
+    void setNodeBypass(const juce::String& nodeId, bool isBypassed)
+    {
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        for (auto& node : graphNodes)
+        {
+            if (node->id == nodeId)
+            {
+                node->isBypassed.store(isBypassed);
+                if (node->processor != nullptr)
+                    node->processor->setBypass(isBypassed);
+                break;
+            }
+        }
+    }
+
+    bool getNodeBypass(const juce::String& nodeId) const
+    {
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        for (const auto& node : graphNodes)
+        {
+            if (node->id == nodeId)
+                return node->isBypassed.load();
+        }
+        return false;
+    }
+
+    float getNodePeak(const juce::String& nodeId) const
+    {
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        for (const auto& node : graphNodes)
+        {
+            if (node->id == nodeId)
+                return node->realtimePeak.load();
+        }
+        return 0.0f;
+    }
+
+    // ========================================================================
+    // Trigger ed Eventi
+    // ========================================================================
     void triggerInstrument(const juce::String& targetNodeId, int subVoice, float velocity)
     {
         TriggerEvent ev;
@@ -117,14 +293,13 @@ public:
         pendingTriggers.push_back(ev);
     }
 
-    // Trigger generico da sorgente hardware (es. "hw-drum", "hw-eye", "hw-mic")
     void triggerFromSource(const juce::String& sourceId, int subVoice, float velocity, bool isSecondary = false)
     {
         std::vector<juce::String> targetInstruments;
         {
-            const std::lock_guard<std::mutex> lock(routeMutex);
+            const std::lock_guard<std::mutex> lock(graphMutex);
 
-            // 1. Cerca prima connessioni trigger dirette esplicite (trigger:out / trigger:*pinch* -> trigger:in)
+            // 1. Cerca connessioni trigger dirette
             for (const auto& r : activeRoutes)
             {
                 const bool matchSource = (r.sourceNodeId == sourceId ||
@@ -165,7 +340,7 @@ public:
                 }
             }
 
-            // 2. Se non ci sono connessioni trigger esplicite, usa il routing convenzionale
+            // 2. Connessioni convenzionali da base rockpi o cavo audio diretto
             if (targetInstruments.empty())
             {
                 for (const auto& r : activeRoutes)
@@ -176,7 +351,6 @@ public:
 
                     if (matchSource)
                     {
-                        // Se la destinazione è la Base Centrale ("rockpi"), propaga ai nodi collegati alla Base
                         if (r.targetNodeId == "rockpi")
                         {
                             for (const auto& r2 : activeRoutes)
@@ -192,7 +366,7 @@ public:
             }
         }
 
-        // Se non ci sono cavi diretti verso strumenti:
+        // Se non ci sono cavi espliciti verso strumenti
         if (targetInstruments.empty())
         {
             if (sourceId == "hw-eye" || sourceId == "hw-webcam")
@@ -213,40 +387,74 @@ public:
         }
     }
 
-    // Modulazione continua di parametri (CV / X-Y-Z Occhio)
+    // ========================================================================
+    // Modulazione Parametri (CV / X-Y-Z Occhio)
+    // ========================================================================
+    void setModulation(const juce::String& nodeId, const juce::String& paramKey, float valueNorm)
+    {
+        const float v = juce::jlimit(0.0f, 1.0f, valueNorm);
+
+        // Controllo diretto del volume o dry/wet se la manopola è "vol" o "mix"
+        if (paramKey == "vol" || paramKey == "volume")
+            setNodeVolume(nodeId, v * 1.5f);
+        else if (paramKey == "mix" || paramKey == "drywet")
+            setNodeDryWet(nodeId, v);
+
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        for (auto& node : graphNodes)
+        {
+            if (node->id == nodeId && node->processor != nullptr)
+            {
+                node->processor->setParameter(paramKey, v);
+                return;
+            }
+        }
+
+        // Fallback su parametri globali
+        setModulation(paramKey, v);
+    }
+
     void setModulation(const juce::String& paramKey, float valueNorm)
     {
+        const float v = juce::jlimit(0.0f, 1.0f, valueNorm);
         if (paramKey == "cutoff")
         {
-            // Scala esponenziale 40 Hz .. 16000 Hz
-            const float hz = 40.0f * std::pow(400.0f, juce::jlimit(0.0f, 1.0f, valueNorm));
+            const float hz = 40.0f * std::pow(400.0f, v);
             filterCutoffHz.store(hz);
         }
         else if (paramKey == "res" || paramKey == "resonance")
         {
-            filterReso.store(juce::jlimit(0.2f, 12.0f, 0.2f + valueNorm * 8.0f));
+            filterReso.store(juce::jlimit(0.2f, 12.0f, 0.2f + v * 8.0f));
         }
-        else if (paramKey == "delay_time")
+        else if (paramKey == "delay_time" || paramKey == "time")
         {
-            delayTimeMs.store(juce::jlimit(20.0f, 1200.0f, 20.0f + valueNorm * 900.0f));
+            delayTimeMs.store(juce::jlimit(20.0f, 1200.0f, 20.0f + v * 900.0f));
         }
-        else if (paramKey == "delay_feedback")
+        else if (paramKey == "delay_feedback" || paramKey == "fb")
         {
-            delayFeedback.store(juce::jlimit(0.0f, 90.0f, valueNorm * 85.0f));
+            delayFeedback.store(juce::jlimit(0.0f, 90.0f, v * 85.0f));
         }
-        else if (paramKey == "reverb_room")
+        else if (paramKey == "reverb_room" || paramKey == "room")
         {
-            reverbRoomSize.store(juce::jlimit(0.0f, 100.0f, valueNorm * 100.0f));
+            reverbRoomSize.store(juce::jlimit(0.0f, 100.0f, v * 100.0f));
         }
-        else if (paramKey == "reverb_mix")
+        else if (paramKey == "reverb_mix" || paramKey == "mix")
         {
-            reverbWetMix.store(juce::jlimit(0.0f, 100.0f, valueNorm * 100.0f));
+            reverbWetMix.store(juce::jlimit(0.0f, 100.0f, v * 100.0f));
         }
     }
 
-    void setModulation(const juce::String& /*nodeId*/, const juce::String& paramKey, float valueNorm)
+    // Trasmissione continua delle coordinate gestuali 3D (Theremin & Sensoristica)
+    void setHand3D(float x, float y, float z, bool isPresent)
     {
-        setModulation(paramKey, valueNorm);
+        const std::lock_guard<std::mutex> lock(graphMutex);
+        for (auto& node : graphNodes)
+        {
+            if (auto* theremin = dynamic_cast<dsp::Theremin3DVoice*>(node->processor.get()))
+            {
+                theremin->setHand3D(x, y, z, isPresent);
+            }
+        }
     }
 
     void setMasterVolume(float gain)
@@ -262,7 +470,7 @@ public:
     bool isRunning() const noexcept { return isAudioRunning; }
 
     // ========================================================================
-    // AudioIODeviceCallback Implementation (Real-Time Audio Thread)
+    // AudioIODeviceCallback Implementation (Real-Time Audio Thread - 0 Allocazioni)
     // ========================================================================
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override
     {
@@ -293,6 +501,8 @@ public:
         if (outR != nullptr)
             juce::FloatVectorOperations::clear(outR, numSamples);
 
+        const int safeSamples = std::min(numSamples, 2048);
+
         // 1. Processa eventi di trigger in coda
         std::vector<TriggerEvent> triggersToProcess;
         {
@@ -300,63 +510,140 @@ public:
             triggersToProcess.swap(pendingTriggers);
         }
 
+        const std::lock_guard<std::mutex> lock(graphMutex);
+
+        for (const auto& ev : triggersToProcess)
         {
-            const std::lock_guard<std::mutex> lock(dspMutex);
-
-            for (const auto& ev : triggersToProcess)
+            bool triggered = false;
+            for (auto& node : graphNodes)
             {
-                // Identifica il tipo di strumento dal nome nodo o voce
-                if (ev.targetNodeId.containsIgnoreCase("felt") || ev.targetNodeId.containsIgnoreCase("piano") || ev.targetNodeId.containsIgnoreCase("synth"))
+                if (node->id == ev.targetNodeId && node->processor != nullptr)
                 {
-                    // Scala melodica pentatonica (C3, D3, E3, G3, A3, C4)
-                    const float freqs[] = { 130.81f, 146.83f, 164.81f, 196.00f, 220.0f, 261.63f, 293.66f, 329.63f };
-                    const float f = freqs[juce::jlimit(0, 7, ev.subVoice % 8)];
-                    synthVoice.triggerNote(f, ev.velocity, false);
-                }
-                else if (ev.targetNodeId.containsIgnoreCase("808") || ev.targetNodeId.containsIgnoreCase("sub"))
-                {
-                    subVoice.triggerNote(48.0f, ev.velocity, true);
-                }
-                else
-                {
-                    // Default: Drum Kit Analogico (Cassa, Rullante, Hat, Percussione)
-                    drumKit.trigger(ev.subVoice % 4, ev.velocity);
+                    node->processor->trigger(ev.subVoice, ev.velocity);
+                    triggered = true;
+                    break;
                 }
             }
 
-            // 2. Genera campioni da strumenti attivi
-            drumKit.renderNextBlock(outL, outR, numSamples, 1.0f);
-
-            synthVoice.setMacroControls(filterCutoffHz.load(), filterReso.load(), 0.35f);
-            synthVoice.renderNextBlock(outL, outR, numSamples, 0.95f);
-
-            subVoice.setMacroControls(400.0f, 1.0f, 0.1f);
-            subVoice.renderNextBlock(outL, outR, numSamples, 1.05f);
-
-            // 3. Processa catena effetti (SVF Filter ZDF -> Tape Delay -> Lush Reverb)
-            const float cut = filterCutoffHz.load();
-            const float res = filterReso.load();
-            svfFilterL.setParameters(cut, res, dsp::SVF_ZDF::Mode::LowPass);
-            svfFilterR.setParameters(cut, res, dsp::SVF_ZDF::Mode::LowPass);
-
-            for (int i = 0; i < numSamples; ++i)
+            // Fallback se il nodo target non è trovato o è generico
+            if (!triggered)
             {
-                if (outL != nullptr) outL[i] = svfFilterL.process(outL[i]);
-                if (outR != nullptr) outR[i] = svfFilterR.process(outR[i]);
+                for (auto& node : graphNodes)
+                {
+                    if (node->isInstrument && node->processor != nullptr)
+                    {
+                        node->processor->trigger(ev.subVoice, ev.velocity);
+                        triggered = true;
+                        break;
+                    }
+                }
+                if (!triggered)
+                {
+                    triggerSoundById(ev.subVoice, ev.velocity);
+                }
             }
-
-            tapeDelay.setParameters(delayTimeMs.load(), delayFeedback.load(), 3800.0f, delayWetMix.load());
-            tapeDelay.processBlock(outL, outR, numSamples);
-
-            reverb.setParameters(reverbRoomSize.load(), 35.0f, reverbWetMix.load());
-            reverb.processBlock(outL, outR, numSamples);
         }
 
-        // 4. Guadagno Master & Soft Limiter Anti-Clipping (Udo Zölzer)
+        // 2. Rendering degli Strumenti (Generazione suono indipendente per ciascun nodo)
+        for (auto& node : graphNodes)
+        {
+            if (node->isInstrument && node->processor != nullptr)
+            {
+                juce::FloatVectorOperations::clear(node->bufferL.data(), safeSamples);
+                juce::FloatVectorOperations::clear(node->bufferR.data(), safeSamples);
+
+                node->processor->processNode(node->bufferL.data(), node->bufferR.data(), safeSamples, false);
+                node->realtimePeak.store(node->processor->getPeakLevel());
+            }
+        }
+
+        // 3. Elaborazione della Catena di Effetti lungo i cavi del Canvas
+        for (auto& node : graphNodes)
+        {
+            if (node->isEffect && node->processor != nullptr)
+            {
+                juce::FloatVectorOperations::clear(node->bufferL.data(), safeSamples);
+                juce::FloatVectorOperations::clear(node->bufferR.data(), safeSamples);
+
+                // Somma tutti i cavi in ingresso che puntano a questo effetto
+                for (const auto& r : activeRoutes)
+                {
+                    if (r.targetNodeId == node->id && (r.targetPinId == "audio:in" || !r.isModulation))
+                    {
+                        for (auto& src : graphNodes)
+                        {
+                            if (src->id == r.sourceNodeId)
+                            {
+                                juce::FloatVectorOperations::add(node->bufferL.data(), src->bufferL.data(), safeSamples);
+                                juce::FloatVectorOperations::add(node->bufferR.data(), src->bufferR.data(), safeSamples);
+                            }
+                        }
+                    }
+                }
+
+                // Processa con gestione Dry/Wet, Gain compensato, e Bypass pulito
+                node->processor->processNode(node->bufferL.data(), node->bufferR.data(), safeSamples, true);
+                node->realtimePeak.store(node->processor->getPeakLevel());
+            }
+        }
+
+        // 4. Somma al Master Bus
+        // Un nodo fluisce al master se è collegato a "master-out" / "rockpi",
+        // oppure se è uno strumento/effetto senza cavi audio a valle (per evitare nodi muti).
+        int nodesSummedToMaster = 0;
+        for (auto& node : graphNodes)
+        {
+            if (!node->isInstrument && !node->isEffect)
+                continue;
+
+            bool hasRouteToMaster = false;
+            bool hasRouteToOtherEffect = false;
+
+            for (const auto& r : activeRoutes)
+            {
+                if (r.sourceNodeId == node->id && !r.isModulation)
+                {
+                    if (r.targetNodeId == "master-out" || r.targetNodeId == "rockpi")
+                    {
+                        hasRouteToMaster = true;
+                    }
+                    else
+                    {
+                        for (const auto& other : graphNodes)
+                        {
+                            if (other->id == r.targetNodeId && other->isEffect)
+                            {
+                                hasRouteToOtherEffect = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (hasRouteToMaster || !hasRouteToOtherEffect)
+            {
+                if (outL != nullptr)
+                    juce::FloatVectorOperations::add(outL, node->bufferL.data(), safeSamples);
+                if (outR != nullptr)
+                    juce::FloatVectorOperations::add(outR, node->bufferR.data(), safeSamples);
+                nodesSummedToMaster++;
+            }
+        }
+
+        // Fallback di riserva se il canvas non ha strumenti attivi
+        if (graphNodes.empty() || nodesSummedToMaster == 0)
+        {
+            drumKit.renderNextBlock(outL, outR, safeSamples, 1.0f);
+            synthVoice.setMacroControls(filterCutoffHz.load(), filterReso.load(), 0.35f);
+            synthVoice.renderNextBlock(outL, outR, safeSamples, 0.95f);
+        }
+
+        // 5. Guadagno Master & Soft Limiter Anti-Clipping Tanh (Udo Zölzer)
         const float mg = masterGain.load();
         float peak = 0.0f;
 
-        for (int i = 0; i < numSamples; ++i)
+        for (int i = 0; i < safeSamples; ++i)
         {
             if (outL != nullptr)
             {
@@ -373,6 +660,9 @@ public:
         masterPeak.store(peak);
     }
 
+    // ========================================================================
+    // Funzioni Ausiliarie Retrocompatibili (Modulo Occhio e Suoni Default)
+    // ========================================================================
     void setEyeFingerSound(int globalIndex, int soundId)
     {
         switch (globalIndex)
@@ -408,62 +698,68 @@ public:
     void triggerSoundById(int soundId, float velocity)
     {
         const float v = juce::jlimit(0.15f, 1.0f, velocity);
-        const std::lock_guard<std::mutex> lock(dspMutex);
-
         switch (soundId)
         {
-            case 0: // Cassa (Kick)
-                drumKit.trigger(0, v);
-                break;
-            case 1: // Rullante (Snare)
-                drumKit.trigger(1, v);
-                break;
-            case 2: // Charleston (Hi-Hat)
-                drumKit.trigger(2, v);
-                break;
-            case 3: // Percussione / Tom
-                drumKit.trigger(3, v);
-                break;
-            case 4: // Piano (Do3)
-                synthVoice.triggerNote(130.81f, v, false);
-                break;
-            case 5: // Piano (Re3)
-                synthVoice.triggerNote(146.83f, v, false);
-                break;
-            case 6: // Piano (Mi3)
-                synthVoice.triggerNote(164.81f, v, false);
-                break;
-            case 7: // Piano (Sol3)
-                synthVoice.triggerNote(196.00f, v, false);
-                break;
-            case 8: // Piano (La3)
-                synthVoice.triggerNote(220.00f, v, false);
-                break;
-            case 9: // Piano (Do4)
-                synthVoice.triggerNote(261.63f, v, false);
-                break;
-            case 10: // Synth Lead (Do4)
-                synthVoice.triggerNote(261.63f, v, false);
-                break;
-            case 11: // Pad Gessetto (Mi4)
-                synthVoice.triggerNote(329.63f, v, false);
-                break;
-            case 12: // 808 Sub Bass
-                subVoice.triggerNote(48.0f, v, true);
-                break;
-            case 13: // Latta Giocattolo
-                drumKit.trigger(1, v);
-                break;
-            case 14: // Carillon
-                synthVoice.triggerNote(523.25f, v, false);
-                break;
-            default:
-                drumKit.trigger(soundId % 4, v);
-                break;
+            case 0: drumKit.trigger(0, v); break;
+            case 1: drumKit.trigger(1, v); break;
+            case 2: drumKit.trigger(2, v); break;
+            case 3: drumKit.trigger(3, v); break;
+            case 4: synthVoice.triggerNote(130.81f, v, false); break;
+            case 5: synthVoice.triggerNote(146.83f, v, false); break;
+            case 6: synthVoice.triggerNote(164.81f, v, false); break;
+            case 7: synthVoice.triggerNote(196.00f, v, false); break;
+            case 8: synthVoice.triggerNote(220.00f, v, false); break;
+            case 9: synthVoice.triggerNote(261.63f, v, false); break;
+            case 10: synthVoice.triggerNote(261.63f, v, false); break;
+            case 11: synthVoice.triggerNote(329.63f, v, false); break;
+            case 12: subVoice.triggerNote(48.0f, v, true); break;
+            case 13: drumKit.trigger(1, v); break;
+            case 14: synthVoice.triggerNote(523.25f, v, false); break;
+            default: drumKit.trigger(soundId % 4, v); break;
         }
     }
 
 private:
+    static std::unique_ptr<NodeAudioProcessor> createProcessorForNode(
+        const juce::String& id, const juce::String& label, const juce::String& category, const juce::String& engine)
+    {
+        const juce::String full = (id + " " + label + " " + category + " " + engine).toLowerCase();
+
+        // Strumenti
+        if (full.contains("theremin"))
+            return std::make_unique<dsp::Theremin3DVoice>();
+        if (full.contains("karplus") || full.contains("pluck") || full.contains("kalimba") || full.contains("box") || full.contains("carillon"))
+            return std::make_unique<dsp::KarplusPluckVoice>();
+        if (full.contains("drum") || full.contains("kit") || full.contains("toy") || full.contains("percuss") || full.contains("cassa"))
+            return std::make_unique<dsp::AnalogDrumKit>();
+        if (full.contains("synth") || full.contains("va") || full.contains("lead") || full.contains("bass") || full.contains("felt") || full.contains("piano") || full.contains("chalk"))
+            return std::make_unique<dsp::MelodicSynthVoice>();
+
+        // Effetti
+        if (full.contains("saturaz") || full.contains("drive") || full.contains("soft") || full.contains("overdrive"))
+            return std::make_unique<dsp::SoftSaturatorNode>();
+        if (full.contains("filtro") || full.contains("filter") || full.contains("svf") || full.contains("naif"))
+            return std::make_unique<dsp::SVFFilterNode>();
+        if (full.contains("eco") || full.contains("delay") || full.contains("nastro"))
+            return std::make_unique<dsp::StereoTapeDelay>();
+        if (full.contains("riverbero") || full.contains("reverb") || full.contains("fdn") || full.contains("cattedrale"))
+            return std::make_unique<dsp::LushReverb>();
+
+        // Utility
+        if (full.contains("scale") || full.contains("quantiz"))
+            return std::make_unique<dsp::ScaleLock>();
+        if (full.contains("follower") || full.contains("env"))
+            return std::make_unique<dsp::EnvelopeFollower>();
+        if (full.contains("looper") || full.contains("tape_loop"))
+            return std::make_unique<dsp::TapeLooperProcessor>();
+
+        // Fallback in base alla categoria
+        if (category.containsIgnoreCase("Effett") || id.startsWithIgnoreCase("fx-"))
+            return std::make_unique<dsp::SVFFilterNode>();
+
+        return std::make_unique<dsp::AnalogDrumKit>();
+    }
+
     struct TriggerEvent
     {
         juce::String targetNodeId;
@@ -475,35 +771,35 @@ private:
     bool isAudioRunning = false;
     double currentSampleRate = 48000.0;
 
-    std::mutex dspMutex;
+    // Grafo Dinamico di Nodi Audio
+    mutable std::mutex graphMutex;
+    std::vector<std::shared_ptr<GraphNode>> graphNodes;
+    std::vector<NodeAudioRoute> activeRoutes;
+
+    // Trigger Thread-Safe
+    std::mutex triggerMutex;
+    std::vector<TriggerEvent> pendingTriggers;
+
+    // Voci di Riserva
     dsp::AnalogDrumKit drumKit;
     dsp::MelodicSynthVoice synthVoice;
     dsp::MelodicSynthVoice subVoice;
-
     dsp::SVF_ZDF svfFilterL;
     dsp::SVF_ZDF svfFilterR;
     dsp::StereoTapeDelay tapeDelay;
     dsp::LushReverb reverb;
 
-    std::mutex triggerMutex;
-    std::vector<TriggerEvent> pendingTriggers;
-
-    std::mutex routeMutex;
-    std::vector<NodeAudioRoute> activeRoutes;
-
     // Suoni per ciascun dito del Modulo Occhio (0..3: DX, 4..7: SX)
-    std::atomic<int> eyeFingerSound0 { 0 }; // DX Indice: Cassa
-    std::atomic<int> eyeFingerSound1 { 1 }; // DX Medio: Rullante
-    std::atomic<int> eyeFingerSound2 { 2 }; // DX Anulare: Charleston
-    std::atomic<int> eyeFingerSound3 { 3 }; // DX Mignolo: Percussione
-    std::atomic<int> eyeFingerSound4 { 4 }; // SX Indice: Piano Do3
-    std::atomic<int> eyeFingerSound5 { 5 }; // SX Medio: Piano Re3
-    std::atomic<int> eyeFingerSound6 { 6 }; // SX Anulare: Piano Mi3
-    std::atomic<int> eyeFingerSound7 { 10 }; // SX Mignolo: Synth Lead
+    std::atomic<int> eyeFingerSound0 { 0 };
+    std::atomic<int> eyeFingerSound1 { 1 };
+    std::atomic<int> eyeFingerSound2 { 2 };
+    std::atomic<int> eyeFingerSound3 { 3 };
+    std::atomic<int> eyeFingerSound4 { 4 };
+    std::atomic<int> eyeFingerSound5 { 5 };
+    std::atomic<int> eyeFingerSound6 { 6 };
+    std::atomic<int> eyeFingerSound7 { 10 };
 
-
-
-    // Parametri Atomici Macro
+    // Parametri Atomici Macro Master
     std::atomic<float> masterGain { 1.20f };
     std::atomic<float> masterPeak { 0.0f };
 

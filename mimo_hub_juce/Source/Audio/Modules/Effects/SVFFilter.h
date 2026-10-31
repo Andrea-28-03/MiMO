@@ -74,7 +74,7 @@ private:
 };
 
 // ============================================================================
-// Modulo Effetto Stereo SVF (Implementazione NodeAudioProcessor)
+// Modulo Effetto Stereo SVF (Standard V2)
 // ============================================================================
 class SVFFilterNode : public mimo::audio::NodeAudioProcessor
 {
@@ -98,9 +98,18 @@ public:
         {
             resoQ = 0.1f + v * 9.9f;
         }
-        else if (paramKey == "mix")
+        else if (paramKey == "mix" || paramKey == "drywet")
         {
-            wetMix = v;
+            setDryWet(v);
+        }
+        else if (paramKey == "vol" || paramKey == "volume")
+        {
+            setOutputGain(v * 1.5f);
+        }
+        else if (paramKey == "mode")
+        {
+            const int m = juce::roundToInt(v * 2.0f);
+            currentMode = (m == 0) ? SVF_ZDF::Mode::LowPass : ((m == 1) ? SVF_ZDF::Mode::BandPass : SVF_ZDF::Mode::HighPass);
         }
         updateFilterParams();
     }
@@ -115,20 +124,17 @@ public:
             const float inL = left[i];
             const float inR = (right != nullptr) ? right[i] : inL;
 
-            const float outL = filterL.process(inL);
-            const float outR = filterR.process(inR);
-
-            left[i] = sanitizeSample(inL * (1.0f - wetMix) + outL * wetMix);
+            left[i] = sanitizeSample(filterL.process(inL));
             if (right != nullptr)
-                right[i] = sanitizeSample(inR * (1.0f - wetMix) + outR * wetMix);
+                right[i] = sanitizeSample(filterR.process(inR));
         }
     }
 
 private:
     void updateFilterParams()
     {
-        filterL.setParameters(cutoffHz, resoQ, SVF_ZDF::Mode::LowPass);
-        filterR.setParameters(cutoffHz, resoQ, SVF_ZDF::Mode::LowPass);
+        filterL.setParameters(cutoffHz, resoQ, currentMode);
+        filterR.setParameters(cutoffHz, resoQ, currentMode);
     }
 
     SVF_ZDF filterL;
@@ -136,7 +142,7 @@ private:
 
     float cutoffHz = 1800.0f;
     float resoQ = 1.2f;
-    float wetMix = 1.0f;
+    SVF_ZDF::Mode currentMode = SVF_ZDF::Mode::LowPass;
 };
 
 } // namespace mimo::dsp
