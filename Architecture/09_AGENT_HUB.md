@@ -58,20 +58,20 @@ Il Workspace **STUDIO** è il centro operativo di MiMO Hub: un ambiente modulare
 ```
 
 ### 1.1 Canvas Infinito Senza Griglia Vincolante
-- **Navigazione Fluida:** Spazio di lavoro libero con pan fluido (trascinamento / spazio+mouse) e zoom continuo incentrato sulla posizione del cursore.
+- **Navigazione Fluida:** Spazio di lavoro libero con pan fluido a 360° (anche diagonale per touchpad) e zoom continuo incentrato sulla posizione del cursore.
 - **Console Centrale MiMO:** Nodo centrale che rappresenta la base hardware (Rock Pi 4), disegnato come una card moderna ad angoli arrotondati con indicatori LED piatti che riflettono lo stato in tempo reale.
 - **Sidebar a Scomparsa (Destra):** Pannello laterale retraibile con schede piatte suddivise per categorie:
   - **Strumenti:** Banchi campionati (`sfizz`), modelli fisici, sintetizzatori DSP (`Faust`).
   - **Effetti:** Filtri, delay, riverberi, modulatori, saturazioni.
+  - **Utility:** LFO, Envelope Follower, Scale Lock, Tape Looper.
 
 ### 1.2 Interazione Drag & Drop Intuitiva
-- **Assegnazione Strumenti:** Trascina uno strumento dalla sidebar e rilascialo su uno dei moduli periferici nel canvas (es. Modulo Batteria P1 o Modulo Occhio P2). La card del modulo si illumina con la campitura pastello del colore corrispondente.
-- **Inserimento Effetti "Snap-on-Wire":** Trascina un effetto e rilascialo direttamente sul cavo di collegamento tra due blocchi: il cavo vettoriale si divide automaticamente accogliendo la card del nuovo effetto.
+- **Assegnazione Strumenti:** Trascina uno strumento dalla sidebar e rilascialo su uno dei moduli periferici nel canvas. Lo strumento si posiziona automaticamente alla destra del modulo facendogli spazio ordinato sul canvas, rimanendo visibile ed editabile.
+- **Inserimento Effetti "Drop-on-Wire":** Trascina un effetto e rilascialo direttamente sul cavo di collegamento tra due blocchi: il cavo vettoriale si illumina e si divide automaticamente accogliendo la card del nuovo effetto inserito in serie.
 
 ### 1.3 Architettura a Nodi Nested (Stile Modern Graph Editor)
-- **Macro Node (Vista Esterna Compatta):** All'esterno il nodo complesso appare come una card compatta con bordi arrotondati ed esponendo unicamente le manopole macro essenziali (slider o manopole rotative piatte).
-- **Drill-Down a Schermo Intero (Doppio Clic):** Il doppio clic sul blocco esegue uno zoom/espansione nell'architettura interna del nodo (routing a blocchi Faust DSP o catene interne avanzate).
-- **Esposizione Dinamica dei Parametri:** I parametri collegati alle porte di uscita/ingresso del nodo vengono esposti automaticamente sulla card genitore nel canvas principale.
+- **Macro Node (Vista Esterna Compatta):** All'esterno il nodo complesso appare come una card compatta con bordi arrotondati ed esponendo unicamente le manopole macro essenziali.
+- **Drill-Down a Schermo Intero (Doppio Clic / TAB):** Il doppio clic o il tasto TAB sul blocco apre il canvas interno di personalizzazione per modificare la catena di blocchi base e salvare preset custom nella libreria globale.
 
 ---
 
@@ -101,18 +101,9 @@ La gestione dei preset sostituisce i vecchi menu testuali con un sistema visivo 
 Sopra la sidebar destra è presente un'icona a forma di fotocamera/snapshot moderna. Un clic su di essa cattura istantaneamente lo stato del canvas attuale generando una **Preset Card** in primo piano.
 
 ### 2.2 Interazioni Rapide con la Preset Card
-1. **Auto-Salvataggio nell'Album (Timeout o Click Esterno):**  
-   Archiviazione automatica nella galleria preset con nome generato automaticamente (es. *"Cassa Piezo + Space Delay"*).
-2. **Ridenominazione Immediata:**  
-   Digitando direttamente da tastiera, il titolo della card si aggiorna con un font geometrico moderno e pulito.
-3. **Assegnazione Rapida ai 5 Slot (Drag & Drop o Tasto Hardware):**  
-   Trascinando la card su uno dei 5 slot Scena in basso (o premendo il tasto hardware corrispondente sulla console Rock Pi), la configurazione attuale viene assegnata allo slot selezionato.
-
-### 2.3 Workspace LIVE (Performance & Preset Gallery)
-- **Preset Gallery:** Griglia ordinata e sfogliabile di tutte le Preset Cards salvate.
-- **5 Slot Scena a Commutazione Istantanea:** Grandi pulsanti piatti associati ai 5 tasti hardware I2C della Rock Pi.
-- **Seamless Spillover:** Commutazione tra le scene in $< 1\text{ ms}$, preservando le code di riverbero e delay senza tagli audio.
-- **1-Button Looper Integrato:** Visualizzato a fondo schermo con indicatori geometrici piatti a colori pastello (Rosso per Record, Verde per Play, Giallo ocra per Overdub).
+1. **Auto-Salvataggio nell'Album (Timeout o Click Esterno):** Archiviazione automatica nella galleria preset con nome descrittivo automatico.
+2. **Ridenominazione Immediata:** Digitando direttamente da tastiera, il titolo della card si aggiorna.
+3. **Assegnazione Rapida ai 5 Slot (Drag & Drop o Tasto Hardware):** Trascinando la card su uno dei 5 slot Scena in basso, la configurazione attuale viene assegnata allo slot selezionato.
 
 ---
 
@@ -139,13 +130,11 @@ Sopra la sidebar destra è presente un'icona a forma di fotocamera/snapshot mode
 ### 3.1 Modalità Internal Engine (Stand-Alone / Neofiti)
 - **Latenza Ultra-Bassa:** `juce::AudioDeviceManager` interfacciato con ASIO (Windows), CoreAudio (macOS) e PipeWire/ALSA (Linux) con buffer a 64 campioni ($< 3\text{ ms}$).
 - **Campionatore `sfizz` (C++):** Gestione kit percussivi multi-layer e campioni `.sfz`.
-- **Sintesi ed Effetti `Faust` DSP (C++):** Compilati in `juce::AudioProcessorGraph` ed esposti tramite macro parametriche flat.
+- **Sintesi ed Effetti `Faust` DSP (C++):** Processori C++ modulari isolati in `Source/Audio/Modules/`.
 
 ### 3.2 Modalità Pro DAW Bridge (Integrazione Studi Professionali)
 - **Bypass DSP:** Risparmio totale di CPU disattivando la sintesi interna quando si usa una DAW esterna (Ableton Live, Bitwig, Logic, Reaper).
-- **Virtual MIDI & OSC Routing:**
-  - `juce::MidiOutput` crea un bus Virtual MIDI standard (note percussive su Canale 10, assi 3D dell'Occhio su MPE CC 16-18).
-  - Telemetria continua con la console Rock Pi per aggiornare lo schermo da 3.5".
+- **Virtual MIDI & OSC Routing:** `juce::MidiOutput` crea un bus Virtual MIDI standard e telemetria continua con la console Rock Pi.
 
 ---
 
@@ -165,51 +154,74 @@ Il Modulo Occhio trasforma i movimenti della mano e delle dita in modulazioni co
        |        |   | QR CODE     |    21 Landmark Vettoriali    |       |
        |        |   | VETTORIALE  |    Pinch Indice: ON (vel 95) |       |
        |        |   +-------------+    X: 0.62 | Y: 0.81 | Z:0.4 |       |
+       |        |   +-------------+                              |       |
        |        +------------------------------------------------+       |
        +-----------------------------------------------------------------+
 ```
 
-### 4.1 Architettura Zero-Install (Smartphone PWA con Google MediaPipe)
-- **QR Code Vettoriale Integrato:** Generato istantaneamente in C++ (tramite libreria single-header snella come `qrcodegen`), punta all'URL locale della macchina `http://<IP_LOCALE>:8088/eye`. Inquadrandolo con la fotocamera dello smartphone, il browser mobile apre la PWA locale senza alcuna installazione da app store.
-- **MediaPipe Hands a 60 FPS:** Lo smartphone elabora il flusso video tramite WebGL sulla propria GPU, rilevando i **21 landmark 3D** della mano (falangi, nocche, polso e punta di ogni dito).
-- **Streaming Dati a Bassa Latenza:** I dati normalizzati (0.0 - 1.0) vengono trasmessi direttamente a MiMO Hub su PC via **WebSocket o UDP/OSC** (tramite modulo `juce_osc`).
-- **Webcam Locale di Fallback:** Possibilità di selezionare la webcam del laptop o una telecamera USB tramite `juce::CameraDevice`.
-
-### 4.2 Rappresentazione sul Canvas (Semplificata e Flat)
-- **Card del Modulo Compatta:** Sul canvas infinito, il Modulo Occhio occupa una card minimale ad angoli arrotondati con:
-  - Icona geometrica stilizzata dell'occhio.
-  - Badge a pillola con lo stato di connessione e framerate ("Disconnesso", "Webcam Locale", "Smartphone 60 FPS").
-  - Mini indicatore vettoriale pastello ciano che visualizza la posizione della mano nello spazio 3D.
-  - Pulsante a icona per aprire il **Popover / Drawer di configurazione** con il QR Code e la calibrazione.
-- **Preview Vettoriale delle Mani:** All'interno del popover di configurazione, le mani sono renderizzate come scheletri geometrici moderni (21 punti collegati da linee pulite in colori pastello, es. ciano per mano destra e pesca per mano sinistra).
-
-### 4.3 Mappatura Musicale & Controllo Indipendente per Singolo Dito
-- **Controllo Indipendente delle Dita (Pinch Trigger):**
-  - Calcolo in tempo reale della distanza euclidea tra la punta del pollice e le rispettive punte di Indice, Medio, Anulare e Mignolo.
-  - Ciascun pinch costituisce un trigger percussivo/nota distinto, con velocità dinamica calcolata dalla rapidità di chiusura del gesto.
-- **Modulazione Continua 3D:**
-  - **Asse X:** Pan stereofonico, spazializzazione o morfologia spettrale.
-  - **Asse Y:** Cutoff del filtro, frequenza base o inviluppo.
-  - **Asse Z (Distanza dalla camera):** Quantità mandata riverbero / delay o bilanciamento wet/dry.
-  - **Apertura Palmo / Flessione complessiva:** Modulatore globale assegnabile alle macro degli strumenti o degli effetti.
+- **QR Code Vettoriale Integrato:** Punta a `http://<IP_LOCALE>:8088/eye` per aprire la PWA mobile senza installazioni da app store.
+- **MediaPipe Hands a 60 FPS:** 21 landmark 3D (falangi, nocche, polso e dita) con pinch indipendenti per dito e streaming WebSocket/OSC a bassa latenza.
 
 ---
 
-## Pilastro 5: Stack Tecnologico & Implementazione Grafica JUCE
+## Pilastro 5: Struttura Modulare Rigorosa della Codebase C++20 / JUCE
 
-### 5.1 Motore Grafico e Standard UI C++20
-*   **Linguaggio:** C++20.
-*   **Framework:** JUCE 7 / 8 (`juce_core`, `juce_events`, `juce_graphics`, `juce_data_structures`, `juce_gui_basics`, `juce_gui_extra`, `juce_audio_basics`, `juce_audio_devices`, `juce_audio_processors`, `juce_osc`, `juce_video`).
-*   **Tecnica di Rendering Flat Moderno:**
-    - Tracciati geometrici precisi con `juce::Graphics::drawRoundedRectangle`, `fillRoundedRectangle` e curve di Bézier nitide.
-    - Nessun jitter casuale, nessuna texture di carta o rumore frattale: campiture a tinta piatta e gradienti lineari soft.
-    - Cavi di connessione disegnati con spline vettoriali antialiased ad alto contrasto.
-    - Controlli rotativi moderni (flat arc knobs con indicatore ad arco color pastello).
-    - Gestione dello spazio di lavoro con `juce::Viewport` e matrice di trasformazione affine per pan e zoom fluidi.
+> [!CAUTION]
+> **REGOLA ARCHITETTURALE ANTI-MONOLITE (Obbligo di Decomposizione Modulare):**  
+> `MainComponent.cpp` non deve superare **800-1.000 righe di codice**.  
+> È vietato aggiungere direttamente in `MainComponent.cpp` logiche di calcolo coordinate complesse, algoritmi grafici di disegno nodi o routine di tracking hardware. Tutte le funzionalità devono risiedere nei rispettivi moduli dedicati.
 
-### 5.2 Roadmap Modulare di Sviluppo
-1.  **Fase 1 (Completata):** Scheletro standalone C++ JUCE con CMake, LookAndFeel base e finestra nativa.
-2.  **Fase 2 (In Corso):** Implementazione del Canvas Infinito in stile Modern Flat & Pastel Minimal, Dock inferiore (Studio, Live, Community) e sidebar a scomparsa.
-3.  **Fase 3 (Modulo Occhio & Rete):** Integrazione modulo `juce_osc`, server locale con QR Code e Web App PWA MediaPipe Hands a 21 landmark.
-4.  **Fase 4 (Nodi & Snapshot Cards):** Architettura a nodi nested con drill-down a schermo intero e sistema di salvataggio Preset Cards.
-5.  **Fase 5 (Audio Core & Virtual MIDI):** Integrazione DSP Faust, campionatore `sfizz`, driver ASIO/WASAPI a bassa latenza e porte Virtual MIDI.
+### 5.1 Albero delle Directory di MiMO Hub (`mimo_hub_juce/Source/`)
+
+```
+Source/
+├── Audio/                          [PILASTRO 1: IL SUONO]
+│   ├── AudioEngine.h / .cpp        Matrice di routing audio realtime (zero allocazioni)
+│   ├── NodeAudioProcessor.h        Interfaccia base pura polimorfa per tutti i processori DSP
+│   ├── DSPUtils.h                  Anti-denormal, ADSR analogica, saturazione soft-clip
+│   ├── AudioDSP.h                  Umbrella header che include tutti i moduli
+│   └── Modules/                    Moduli DSP isolati (1 header per classe, compilazione autonoma):
+│       ├── Instruments/            AnalogDrumVoice.h, MelodicSynthVoice.h, Theremin3DVoice.h, KarplusPluckVoice.h
+│       ├── Effects/                SVFFilter.h, SoftSaturator.h, StereoTapeDelay.h, LushReverb.h, BBDChorus.h, MoogLadderFilter.h
+│       └── Utilities/              MultiWaveLFO.h, EnvelopeFollower.h, ScaleLock.h, TapeLooperProcessor.h
+│
+├── Devices/                        [PILASTRO 2: L'HARDWARE DEL LAPTOP & SENSORI]
+│   ├── HardwareWorkers.h           Thread ad alta priorità dedicati (0 ms blocco sul thread UI)
+│   └── HardwareWorkers.cpp         MicWorker (WASAPI input/synth) + CameraWorker (Webcam & MediaPipe)
+│
+├── GUI/
+│   ├── CanvasGraph.h / .cpp        [PILASTRO 3: DATI & TOPOLOGIA DEL GRAFO]
+│   │                               Strutture pure (CanvasNode, CanvasCable, KnobParam, CatalogItem, PinHit)
+│   │                               Matematica di proiezione (screenToWorld, snap pin, hit-testing cavi)
+│   │
+│   ├── MiMOEyeDrawer.h / .cpp      [PILASTRO 4: VISIONE IA & COMPUTER VISION]
+│   │                               Rendering scheletro 21 falangi MediaPipe, drawer laterale calibrazione,
+│   │                               generazione codice QR vettoriale per smartphone PWA.
+│   │
+│   ├── MiMOLookAndFeel.h / .cpp    Stile visivo ufficiale "Modern Flat Pastel" (font, bottoni, knob, cavi)
+│   │
+│   ├── CanvasRenderer.h / .cpp     Rendering specializzato del canvas: disegno nodi, schede opache, manopole,
+│   │                               cavi pastello dinamici e marquee selection.
+│   │
+│   ├── SidebarComponent.h / .cpp   Pannello laterale a scomparsa: categorie catalogo, hover, drag-and-drop.
+│   │
+│   ├── MainComponent.h             [IL COORDINATORE GRAFICO LEAN]
+│   └── MainComponent.cpp           Unicamente assemblatore e router di eventi ad alto livello (< 800 righe).
+│                                   Inizializza audio, workers e sub-componenti grafici.
+│
+├── Networking/
+│   ├── MiMOEyeServer.h / .cpp      Server HTTP/WebSocket locale per smartphone PWA (porta 8088)
+│
+└── Utils/
+    └── qrcodegen.hpp / .cpp        Generatore QR Code vettoriale a singolo file
+```
+
+### 5.2 Piano di Decomposizione di `MainComponent.cpp`
+Attualmente `MainComponent.cpp` contiene ancora blocchi storici di disegno inline. Per garantire manutenibilità e coerenza cross-sessione:
+1. **Estrazione di `CanvasRenderer`:** Raccoglie tutti i metodi di disegno del canvas (`drawSketchBox`, `drawCanvasNodes`, `drawAudioCable`, `drawModulationCable`, marquee selection).
+2. **Estrazione di `SidebarComponent`:** Raccoglie la gestione della sidebar destra, il catalogo categorie (Strumenti, Effetti, Utility) e lo scorrimento verticale.
+3. **Estrazione di `LiveSceneBar` & `BottomDock`:** Raccoglie i 5 slot scena, il pulsante 1-button looper e la commutazione delle tab (Studio, Live, Community).
+4. `MainComponent.cpp` manterrà unicamente:
+   - Istanziazione di `AudioEngine`, `HardwareWorkers`, `CanvasRenderer`, `SidebarComponent`.
+   - Dispatching degli eventi di mouse ad alto livello (zoom, pan, drag mode).
+   - Loop a 60 FPS del `timerCallback` limitato all'aggiornamento dei livelli audio e delle modulazioni CV.

@@ -5,6 +5,20 @@
 
 ---
 
+## 🏛️ Fase 0: Decomposizione Modulare di MainComponent (Regola Anti-Monolite)
+*Obiettivo: Suddividere `MainComponent.cpp` (attualmente a ~8900 righe) secondo i 4 Pilastri ufficiali dell'architettura prima che cresca ulteriormente, garantendo che le modifiche tra diverse conversazioni non collidano mai.*
+
+- [ ] **0.1. Scorporo di `CanvasRenderer` (`Source/GUI/CanvasRenderer.h / .cpp`)**
+  - Spostare tutto il rendering visivo del canvas: disegno di sfondo, nodi, card opache, manopole pastello, prese jack, cavi audio e di modulazione, e box di selezione multipla.
+- [ ] **0.2. Scorporo di `SidebarComponent` (`Source/GUI/SidebarComponent.h / .cpp`)**
+  - Spostare la gestione visiva e interattiva del cassetto laterale destro: rendering delle sezioni collassabili (Strumenti, Effetti, Utility), scrolling verticale, ricerca e drag-and-drop degli elementi verso il canvas.
+- [ ] **0.3. Scorporo di `BottomDock` & `SceneBar` (`Source/GUI/BottomDock.h / .cpp`)**
+  - Spostare il dock inferiore con i tasti delle tab (Studio, Live, Community), i 5 pulsanti scena e il modulo 1-Button looper.
+- [ ] **0.4. Riduzione di `MainComponent` a Coordinatore Lean (< 800 righe)**
+  - `MainComponent` manterrà unicamente l'orchestrazione: istanziazione dei componenti figli, dispatching degli eventi di input di alto livello e timer a 60 FPS per i VU-meter e il sync dei parametri.
+
+---
+
 ## 📋 Fase 1: Workflow & Interazione Canvas Core (UX Fondamentale)
 *Obiettivo: Rendere il canvas agile, naturale e conforme agli standard professionali di disegno e montaggio.*
 
