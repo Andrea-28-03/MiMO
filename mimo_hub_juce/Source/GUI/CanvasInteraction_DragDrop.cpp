@@ -495,20 +495,6 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
                     {
                         auto instNode = comp.createInstrumentNodeFromCatalog(comp.draggedCatalogItem, worldPt - juce::Point<float>{ 115.0f, 60.0f }, comp.fxCounter++);
                         comp.nodes.push_back(instNode);
-
-                        for (const auto& n : comp.nodes)
-                        {
-                            if (n.type == NodeType::MasterOut)
-                            {
-                                comp.cables.push_back({
-                                    "c-" + juce::String(juce::Time::getMillisecondCounter()) + "-" + juce::String(rand() % 1000),
-                                    instNode.id, "audio:out",
-                                    n.id, "audio:in",
-                                    false, instNode.crayonColour, {}
-                                });
-                                break;
-                            }
-                        }
                         comp.syncAudioRoutes();
                     }
                 }

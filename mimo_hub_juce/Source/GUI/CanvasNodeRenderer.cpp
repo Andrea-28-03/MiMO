@@ -855,11 +855,6 @@ void CanvasRenderer::paintInstrumentNode(juce::Graphics& g, MainComponent& comp,
     g.setFont(juce::Font(9.5f, juce::Font::bold));
     g.drawText("SUONA NOTA / TEST", testBtn.toNearestInt(), juce::Justification::centred);
 
-    // Badge OUT
-    g.setFont(juce::Font(9.5f, juce::Font::bold));
-    g.setColour(MiMOLookAndFeel::inkMuted);
-    g.drawText("OUT", static_cast<int>(box.getRight() - 32), static_cast<int>(box.getY() + 26), 24, 14, juce::Justification::centredRight);
-
     // Manopole parametri strumento
     const auto canvasKnobs = comp.collectCanvasKnobs();
     for (const auto& kh : canvasKnobs)

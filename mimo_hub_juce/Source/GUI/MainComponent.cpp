@@ -21,7 +21,7 @@ MainComponent::MainComponent()
     mimoImage = juce::ImageFileFormat::loadFrom(BinaryData::mimo_device_png, BinaryData::mimo_device_pngSize);
     if (mimoImage.isNull())
     {
-        juce::Array<juce::File> searchList = {
+        const juce::File searchList[] = {
             juce::File::getCurrentWorkingDirectory().getChildFile("Resources/mimo_device.png"),
             juce::File::getCurrentWorkingDirectory().getChildFile("mimo_hub_juce/Resources/mimo_device.png"),
             juce::File::getSpecialLocation(juce::File::currentApplicationFile).getParentDirectory().getChildFile("Resources/mimo_device.png"),
@@ -29,14 +29,8 @@ MainComponent::MainComponent()
             juce::File("H:/Il mio Drive/5. Programmazione MIMO/MiMO_Project/Immagini/MIMO.png")
         };
         for (const auto& f : searchList)
-        {
-            if (f.existsAsFile())
-            {
-                mimoImage = juce::ImageFileFormat::loadFrom(f);
-                if (mimoImage.isValid())
-                    break;
-            }
-        }
+            if (f.existsAsFile() && (mimoImage = juce::ImageFileFormat::loadFrom(f)).isValid())
+                break;
     }
 
     if (mimoImage.isValid() && mimoImage.getWidth() > 680)
@@ -276,40 +270,27 @@ mimo::HandTrackingState MainComponent::analyzeHandFrame(const juce::Image& frame
 
 bool MainComponent::isDrumInCanvas() const
 {
-    for (const auto& n : nodes)
-        if (n.id == "hw-drum")
-            return true;
-    return false;
+    return std::any_of(nodes.begin(), nodes.end(), [](const CanvasNode& n) { return n.id == "hw-drum"; });
 }
 
 bool MainComponent::isMicInCanvas() const
 {
-    for (const auto& n : nodes)
-        if (n.isIntegratedMic || n.id == "hw-mic")
-            return true;
-    return false;
+    return std::any_of(nodes.begin(), nodes.end(), [](const CanvasNode& n) { return n.isIntegratedMic || n.id == "hw-mic"; });
 }
 
 bool MainComponent::isCameraInCanvas() const
 {
-    for (const auto& n : nodes)
-        if (n.isIntegratedCamera || n.id == "hw-webcam" || n.id == "hw-eye")
-            return true;
-    return false;
+    return std::any_of(nodes.begin(), nodes.end(), [](const CanvasNode& n) { return n.isIntegratedCamera || n.id == "hw-webcam" || n.id == "hw-eye"; });
 }
 
 bool MainComponent::isHandEnabled(bool isSecondary) const
 {
     const juce::String rootId = isSecondary ? "eye_sx" : "eye_dx";
     for (const auto& n : nodes)
-    {
         if (n.id == "hw-eye" || n.id == "hw-webcam" || n.isIntegratedCamera)
-        {
             for (const auto& grp : n.outputGroups)
                 if (grp.id == rootId)
                     return grp.isEnabled;
-        }
-    }
     return true;
 }
 
@@ -320,14 +301,10 @@ bool MainComponent::isHandTriggersEnabled(bool isSecondary) const
 
     const juce::String trigId = isSecondary ? "eye_sx_pinches" : "eye_dx_pinches";
     for (const auto& n : nodes)
-    {
         if (n.id == "hw-eye" || n.id == "hw-webcam" || n.isIntegratedCamera)
-        {
             for (const auto& grp : n.outputGroups)
                 if (grp.id == trigId)
                     return grp.isEnabled;
-        }
-    }
     return true;
 }
 
@@ -370,19 +347,22 @@ void MainComponent::initCatalogs()
 
 void MainComponent::syncAudioRoutes()
 {
+    // Rimuovi qualsiasi cavo audio:out residuo dagli strumenti (o cavi verso master/rockpi)
+    cables.erase(std::remove_if(cables.begin(), cables.end(), [&](const CanvasCable& c) {
+        for (const auto& n : nodes)
+            if (n.id == c.sourceNodeId && n.type == NodeType::InstrumentNode)
+                if (c.sourcePinId == "audio:out" || c.targetNodeId == "master" || c.targetNodeId == "rockpi")
+                    return true;
+        return false;
+    }), cables.end());
+
     std::vector<mimo::audio::NodeAudioRoute> routes;
+    routes.reserve(cables.size());
     for (const auto& c : cables)
-    {
-        mimo::audio::NodeAudioRoute r;
-        r.sourceNodeId = c.sourceNodeId;
-        r.sourcePinId = c.sourcePinId;
-        r.targetNodeId = c.targetNodeId;
-        r.targetPinId = c.targetPinId;
-        r.isModulation = c.isModulation;
-        routes.push_back(r);
-    }
+        routes.push_back({ c.sourceNodeId, c.sourcePinId, c.targetNodeId, c.targetPinId, c.isModulation });
 
     std::vector<mimo::audio::NodeGraphDescriptor> descriptors;
+    descriptors.reserve(nodes.size());
     for (const auto& n : nodes)
     {
         mimo::audio::NodeGraphDescriptor d;

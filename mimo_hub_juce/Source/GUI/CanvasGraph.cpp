@@ -479,11 +479,6 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
                                      { node.pos.x, node.pos.y + 58.0f }, { -1.0f, 0.0f },
                                      MiMOLookAndFeel::PinShapeType::TriggerDiamond });
                 }
-
-                // Presa Audio Out (Cerchio)
-                pins.push_back({ node.id, "audio:out", true, false, MiMOLookAndFeel::fountainInk,
-                                 { node.pos.x + node.size.x, node.pos.y + 28.0f }, { 1.0f, 0.0f },
-                                 MiMOLookAndFeel::PinShapeType::AudioCircle });
             }
         }
         else if (node.type == NodeType::MasterOut)

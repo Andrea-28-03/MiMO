@@ -499,36 +499,6 @@ void CanvasGraphEditor::assignInstrumentToHardware(MainComponent& comp, const ju
         });
     }
 
-    // Connetti l'uscita audio verso MiMO Base Rock Pi o Master
-    juce::String targetAudioNode = "master";
-    for (const auto& n : comp.nodes)
-    {
-        if (n.id == "rockpi")
-        {
-            targetAudioNode = "rockpi";
-            break;
-        }
-    }
-
-    if (targetAudioNode == "rockpi")
-    {
-        comp.cables.push_back({
-            "c-inst-pi-" + instNode.id,
-            instNode.id, "audio:out",
-            "rockpi", "audio:p3",
-            false, instNode.crayonColour, {}
-        });
-    }
-    else
-    {
-        comp.cables.push_back({
-            "c-inst-mst-" + instNode.id,
-            instNode.id, "audio:out",
-            "master", "audio:in",
-            false, instNode.crayonColour, {}
-        });
-    }
-
     hwNode->hasInstrument = true;
     hwNode->instrumentName = item.name;
     hwNode->instrumentEngine = item.engine;
@@ -561,7 +531,7 @@ void CanvasGraphEditor::autoConnectEffectFromLibrary(MainComponent& comp, const 
     {
         for (auto it = comp.nodes.rbegin(); it != comp.nodes.rend(); ++it)
         {
-            if (it->type == NodeType::NestedEffect || it->type == NodeType::InstrumentNode)
+            if (it->type == NodeType::NestedEffect)
             {
                 selNode = &(*it);
                 break;
@@ -569,7 +539,7 @@ void CanvasGraphEditor::autoConnectEffectFromLibrary(MainComponent& comp, const 
         }
     }
 
-    if (selNode != nullptr && selNode->type != NodeType::MasterOut)
+    if (selNode != nullptr && selNode->type != NodeType::MasterOut && selNode->type != NodeType::InstrumentNode)
     {
         juce::String outgoingCableId;
         for (const auto& c : comp.cables)

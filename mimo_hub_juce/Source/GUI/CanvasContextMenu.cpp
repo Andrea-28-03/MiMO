@@ -31,22 +31,6 @@ juce::PopupMenu CanvasContextMenu::buildInstrumentsSubMenu(MainComponent& comp, 
                 c->pushUndoSnapshot();
                 auto node = c->createInstrumentNodeFromCatalog(item, worldPos - juce::Point<float>{ 140.0f, 90.0f }, c->fxCounter++);
                 c->nodes.push_back(node);
-
-                // Auto-connessione all'uscita master se presente
-                for (const auto& n : c->nodes)
-                {
-                    if (n.type == NodeType::MasterOut)
-                    {
-                        c->cables.push_back({
-                            "c-" + juce::String(juce::Time::getMillisecondCounter()) + "-" + juce::String(rand() % 1000),
-                            node.id, "audio:out",
-                            n.id, "audio:in",
-                            false, MiMOLookAndFeel::fountainInk, {}
-                        });
-                        break;
-                    }
-                }
-
                 c->selectSingleNode(node.id);
                 c->syncAudioRoutes();
                 c->repaint();
