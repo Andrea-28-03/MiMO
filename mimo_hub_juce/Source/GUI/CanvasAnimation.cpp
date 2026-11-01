@@ -417,6 +417,19 @@ void CanvasAnimation::updateTimerTick(MainComponent& comp, bool& needsRepaint)
             }
         }
 
+        if (comp.micIsVoiced.load())
+        {
+            const int midi = comp.micDetectedMidiNote.load();
+            static const char* noteNames[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+            const int noteIdx = (midi % 12 + 12) % 12;
+            const int octave = (midi / 12) - 1;
+            comp.micCurrentNoteName = juce::String(noteNames[noteIdx]) + juce::String(octave);
+        }
+        else
+        {
+            comp.micCurrentNoteName = "--";
+        }
+
         if (micChanged)
         {
             for (auto& n : comp.nodes)
@@ -435,6 +448,20 @@ void CanvasAnimation::updateTimerTick(MainComponent& comp, bool& needsRepaint)
     {
         comp.micTriggerFired = false;
         comp.micTriggerTicks = 0;
+        comp.micCurrentNoteName = "--";
+    }
+
+    for (int p = 0; p < 5; ++p)
+    {
+        if (comp.piezoTriggerTicks[p] > 0)
+        {
+            --comp.piezoTriggerTicks[p];
+            if (comp.piezoTriggerTicks[p] == 0)
+            {
+                comp.piezoTriggerFired[p] = false;
+                needsRepaint = true;
+            }
+        }
     }
 
     {

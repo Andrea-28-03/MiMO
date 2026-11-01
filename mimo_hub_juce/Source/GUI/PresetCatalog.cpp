@@ -170,31 +170,15 @@ void PresetCatalog::initDefaultStudioGraph(std::vector<CanvasNode>& nodes,
     CanvasNode drum;
     drum.id = "hw-drum";
     drum.type = NodeType::HardwareModule;
-    drum.label = "Modulo Batteria";
-    drum.subtitle = "Sensori Piezo - I2C Ch1";
+    drum.label = "Modulo Percussioni Piezo";
+    drum.subtitle = "1-5 Sensori Tattili Indipendenti";
     drum.portBadge = "P1";
     drum.pos = { -280.0f, 175.0f };
-    drum.size = { 255.0f, 215.0f };
-    {
-        NodeOutputGroup gTrig;
-        gTrig.id = "drum_trig";
-        gTrig.name = "Impulsi Trigger (Colpo)";
-        gTrig.isExpanded = true;
-        gTrig.items = {
-            { "trigger:out", "Trigger Colpo", juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" }
-        };
-
-        NodeOutputGroup gMod;
-        gMod.id = "drum_mod";
-        gMod.name = "Modulazione & Dinamica";
-        gMod.isExpanded = true;
-        gMod.items = {
-            { "mod:vel",   "Velocity",  MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" },
-            { "mod:press", "Pressione", MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
-        };
-        drum.outputGroups = { gTrig, gMod };
-        drum.size.y = CanvasGeometry::getNodeCalculatedHeight(drum);
-    }
+    drum.size = { 265.0f, 255.0f };
+    drum.crayonColour = MiMOLookAndFeel::crayonSage;
+    drum.modOutputs = {
+        { "vel", "Velocity Dinamica", MiMOLookAndFeel::crayonCherry }
+    };
     nodes.push_back(drum);
 
     // 3. Modulo Periferico P2: Modulo Occhio (Posizionato in basso sotto al connettore P2)

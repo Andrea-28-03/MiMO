@@ -353,22 +353,29 @@ public:
                     specificVoice = 3;
                     pinMatches = true;
                 }
-                else if (r.sourcePinId == "trigger:out")
+                else if (r.sourcePinId == "trigger:out" || r.sourcePinId == "inst:out")
                 {
                     pinMatches = true;
+                }
+                else if (sourceId == "hw-drum")
+                {
+                    if (r.sourcePinId == ("trigger:piezo" + juce::String(subVoice + 1)) || r.sourcePinId == "trigger:out" || r.sourcePinId == "inst:out")
+                        pinMatches = true;
                 }
                 else if (sourceId == "hw-eye" || sourceId == "hw-webcam")
                 {
                     if (!isSecondary)
                     {
-                        if (subVoice == 0 && (r.sourcePinId == "trigger:dx_pinch_idx" || r.sourcePinId == "trigger:pinch_idx")) pinMatches = true;
+                        if (r.sourcePinId == "inst:dx" || r.sourcePinId == "inst:out") pinMatches = true;
+                        else if (subVoice == 0 && (r.sourcePinId == "trigger:dx_pinch_idx" || r.sourcePinId == "trigger:pinch_idx")) pinMatches = true;
                         else if (subVoice == 1 && (r.sourcePinId == "trigger:dx_pinch_mid" || r.sourcePinId == "trigger:pinch_mid")) pinMatches = true;
                         else if (subVoice == 2 && (r.sourcePinId == "trigger:dx_pinch_rng" || r.sourcePinId == "trigger:pinch_rng")) pinMatches = true;
                         else if (subVoice == 3 && (r.sourcePinId == "trigger:dx_pinch_pky" || r.sourcePinId == "trigger:pinch_pky")) pinMatches = true;
                     }
                     else
                     {
-                        if (subVoice == 0 && (r.sourcePinId == "trigger:sx_pinch_idx" || r.sourcePinId == "trigger:sx_pinch")) pinMatches = true;
+                        if (r.sourcePinId == "inst:sx") pinMatches = true;
+                        else if (subVoice == 0 && (r.sourcePinId == "trigger:sx_pinch_idx" || r.sourcePinId == "trigger:sx_pinch")) pinMatches = true;
                         else if (subVoice == 1 && r.sourcePinId == "trigger:sx_pinch_mid") pinMatches = true;
                         else if (subVoice == 2 && r.sourcePinId == "trigger:sx_pinch_rng") pinMatches = true;
                         else if (subVoice == 3 && r.sourcePinId == "trigger:sx_pinch_pky") pinMatches = true;

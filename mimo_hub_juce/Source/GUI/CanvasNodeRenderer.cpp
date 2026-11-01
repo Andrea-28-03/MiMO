@@ -148,6 +148,13 @@ void CanvasRenderer::paintHardwareNode(juce::Graphics& g, MainComponent& comp, c
     g.setFont(juce::Font(10.5f, juce::Font::bold));
     g.drawText("X", closeBtn.toNearestInt(), juce::Justification::centred);
 
+    // Task 4.5: Badge presa fisica "STRUM" in alto a destra verso strumenti sonori
+    juce::Rectangle<float> strumBadge(box.getRight() - 68.0f, box.getY() + 8.0f, 38.0f, 18.0f);
+    MiMOLookAndFeel::drawSketchBox(g, strumBadge, seed + 999, MiMOLookAndFeel::crayonCherry, 0.45f);
+    g.setColour(MiMOLookAndFeel::fountainInk);
+    g.setFont(juce::Font(8.5f, juce::Font::bold));
+    g.drawText("STRUM", strumBadge.toNearestInt(), juce::Justification::centred);
+
     // Modulo Occhio / Webcam pulsanti QR e VID
     if (node.isIntegratedCamera || node.id == "hw-webcam" || node.id == "hw-eye")
     {
@@ -168,15 +175,15 @@ void CanvasRenderer::paintHardwareNode(juce::Graphics& g, MainComponent& comp, c
 
     if (node.isIntegratedMic || node.id == "hw-mic")
     {
-        // VU Meter Microfono reale
-        juce::Rectangle<float> vuBox(box.getX() + 12.0f, box.getY() + 46.0f, box.getWidth() - 24.0f, 18.0f);
+        // 1. Task 4.1: VU Meter Interattivo con cursore di soglia integrato
+        juce::Rectangle<float> vuBox(box.getX() + 12.0f, box.getY() + 46.0f, box.getWidth() - 24.0f, 22.0f);
         MiMOLookAndFeel::drawSketchBox(g, vuBox, seed + 101, comp.micTriggerFired ? MiMOLookAndFeel::crayonCherry : MiMOLookAndFeel::paperBg,
-                                       comp.micTriggerFired ? 0.75f : 0.40f, juce::Colours::transparentBlack, 1.2f);
+                                       comp.micTriggerFired ? 0.75f : 0.35f, juce::Colours::transparentBlack, 1.2f);
         if (comp.micTriggerFired)
         {
             g.setColour(MiMOLookAndFeel::polaroidWhite);
-            g.setFont(juce::Font(9.5f, juce::Font::bold));
-            g.drawText("TRIG! (COLPO RILEVATO)", vuBox.toNearestInt(), juce::Justification::centred);
+            g.setFont(juce::Font(10.0f, juce::Font::bold));
+            g.drawText("TRIG! COLPO RILEVATO", vuBox.toNearestInt(), juce::Justification::centred);
         }
         else
         {
@@ -184,71 +191,104 @@ void CanvasRenderer::paintHardwareNode(juce::Graphics& g, MainComponent& comp, c
             const float lvlW = (vuBox.getWidth() - 4.0f) * juce::jlimit(0.0f, 1.0f, curLevel);
             if (lvlW > 1.0f)
             {
-                g.setColour(curLevel > 0.6f ? MiMOLookAndFeel::crayonOchre : MiMOLookAndFeel::crayonSage);
-                g.fillRect(vuBox.getX() + 2.0f, vuBox.getY() + 2.0f, lvlW, vuBox.getHeight() - 4.0f);
+                g.setColour(curLevel > 0.65f ? MiMOLookAndFeel::crayonCherry : (curLevel > 0.40f ? MiMOLookAndFeel::crayonOchre : MiMOLookAndFeel::crayonSage));
+                g.fillRoundedRectangle(vuBox.getX() + 2.0f, vuBox.getY() + 2.0f, lvlW, vuBox.getHeight() - 4.0f, 2.0f);
             }
+
+            // Marcatore / Linea pastello interattiva per la soglia (Task 4.1)
             const float thX = vuBox.getX() + 2.0f + (vuBox.getWidth() - 4.0f) * comp.getMicThreshold();
             g.setColour(MiMOLookAndFeel::crayonCherry);
-            g.drawLine(thX, vuBox.getY() + 1.0f, thX, vuBox.getBottom() - 1.0f, 1.5f);
+            g.drawLine(thX, vuBox.getY() + 1.0f, thX, vuBox.getBottom() - 1.0f, 2.5f);
+
+            // Handle notch (cursore di presa)
+            juce::Path notch;
+            notch.addTriangle(thX - 4.0f, vuBox.getY() + 1.0f, thX + 4.0f, vuBox.getY() + 1.0f, thX, vuBox.getY() + 6.0f);
+            notch.addTriangle(thX - 4.0f, vuBox.getBottom() - 1.0f, thX + 4.0f, vuBox.getBottom() - 1.0f, thX, vuBox.getBottom() - 6.0f);
+            g.fillPath(notch);
+
+            // Valori testo
+            g.setColour(MiMOLookAndFeel::fountainInk);
+            g.setFont(juce::Font(8.5f, juce::Font::bold));
+            g.drawText("LIVE: " + juce::String(static_cast<int>(curLevel * 100)) + "%",
+                       static_cast<int>(vuBox.getX() + 6), static_cast<int>(vuBox.getY()), 65, static_cast<int>(vuBox.getHeight()), juce::Justification::centredLeft);
+            g.drawText("SOGLIA: " + juce::String(static_cast<int>(comp.getMicThreshold() * 100)) + "%",
+                       static_cast<int>(vuBox.getRight() - 75), static_cast<int>(vuBox.getY()), 70, static_cast<int>(vuBox.getHeight()), juce::Justification::centredRight);
         }
 
-        // Slider sensibilità microfono
-        juce::Rectangle<float> slTrack(box.getX() + 12.0f, box.getY() + 68.0f, box.getWidth() - 24.0f, 14.0f);
-        MiMOLookAndFeel::drawSketchBox(g, slTrack, seed + 102, MiMOLookAndFeel::paperBg, 0.5f, juce::Colours::transparentBlack, 1.0f);
-        const float fillW = slTrack.getWidth() * comp.micSensitivity;
-        if (fillW > 2.0f)
-        {
-            juce::Rectangle<float> fillRect(slTrack.getX(), slTrack.getY(), fillW, slTrack.getHeight());
-            g.setColour(MiMOLookAndFeel::crayonOchre.withAlpha(0.65f));
-            g.fillRoundedRectangle(fillRect, 3.0f);
-        }
-        const float knobX = slTrack.getX() + fillW;
-        const float knobY = slTrack.getCentreY();
-        g.setColour(MiMOLookAndFeel::paperCard);
-        g.fillEllipse(knobX - 6.0f, knobY - 6.0f, 12.0f, 12.0f);
-        g.setColour(MiMOLookAndFeel::fountainInk);
-        g.drawEllipse(knobX - 6.0f, knobY - 6.0f, 12.0f, 12.0f, 1.4f);
-
+        // 2. Task 4.2 & 4.3: Barra Modalità Clock / Retrigger & Lettura Pitch Voce
+        const float rowY = box.getY() + 72.0f;
+        const bool isClock = comp.micContinuousRetrigger.load();
+        juce::Rectangle<float> modeBtn(box.getX() + 12.0f, rowY, 108.0f, 20.0f);
+        MiMOLookAndFeel::drawSketchBox(g, modeBtn, seed + 102,
+                                       isClock ? MiMOLookAndFeel::crayonCherry : MiMOLookAndFeel::crayonOchre,
+                                       isClock ? 0.65f : 0.40f);
         g.setColour(MiMOLookAndFeel::fountainInk);
         g.setFont(juce::Font(9.0f, juce::Font::bold));
-        g.drawText("Sens: " + juce::String(static_cast<int>(comp.micSensitivity * 100)) + "%  |  " + comp.getMicStatusText(),
-                   static_cast<int>(box.getX() + 12), static_cast<int>(box.getY() + 84), static_cast<int>(box.getWidth() - 24), 13, juce::Justification::centredLeft);
+        g.drawText(isClock ? "MODO: CLOCK 120" : "MODO: COLPO (HIT)", modeBtn.toNearestInt(), juce::Justification::centred);
 
-        // Riga Trigger Out
-        juce::Rectangle<float> trigRow(box.getX() + 12.0f, box.getY() + 102.0f, box.getWidth() - 24.0f, 26.0f);
+        // Display Pitch Vocale Monofonico & Envelope
+        juce::Rectangle<float> voxBox(modeBtn.getRight() + 6.0f, rowY, box.getWidth() - 24.0f - 114.0f, 20.0f);
+        g.setColour(MiMOLookAndFeel::paperBg);
+        g.fillRoundedRectangle(voxBox, 3.0f);
+        g.setColour(comp.micIsVoiced.load() ? MiMOLookAndFeel::crayonCyan : MiMOLookAndFeel::inkMuted);
+        g.drawRoundedRectangle(voxBox, 3.0f, 1.0f);
+
+        juce::String voxText = "VOX: " + comp.micCurrentNoteName;
+        if (comp.micIsVoiced.load())
+            voxText += " (" + juce::String(static_cast<int>(comp.micDetectedPitchHz.load())) + "Hz)";
+        else
+            voxText += " | ENV " + juce::String(static_cast<int>(comp.micDynamicEnvelope.load() * 100)) + "%";
+
+        g.setColour(comp.micIsVoiced.load() ? MiMOLookAndFeel::fountainInk : MiMOLookAndFeel::inkMuted);
+        g.setFont(juce::Font(9.0f, juce::Font::bold));
+        g.drawText(voxText, voxBox.toNearestInt(), juce::Justification::centred);
+
+        // 3. Riga Trigger Out
+        juce::Rectangle<float> trigRow(box.getX() + 12.0f, box.getY() + 96.0f, box.getWidth() - 24.0f, 24.0f);
         g.setColour(juce::Colour(0xFFFF7A18).withAlpha(0.18f));
         g.fillRoundedRectangle(trigRow, 4.0f);
         g.setColour(juce::Colour(0xFFFF7A18));
-        g.drawRoundedRectangle(trigRow, 4.0f, 1.4f);
+        g.drawRoundedRectangle(trigRow, 4.0f, 1.2f);
 
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
-        g.drawText("Trigger Colpo", static_cast<int>(trigRow.getX() + 8), static_cast<int>(trigRow.getY()), 110, static_cast<int>(trigRow.getHeight()), juce::Justification::centredLeft);
+        g.setFont(juce::Font(10.5f, juce::Font::bold));
+        g.drawText(isClock ? "Clock Out (Impulsi)" : "Trigger Colpo", static_cast<int>(trigRow.getX() + 8), static_cast<int>(trigRow.getY()), 130, static_cast<int>(trigRow.getHeight()), juce::Justification::centredLeft);
 
         // Tasto Test
-        juce::Rectangle<float> testBtn(trigRow.getRight() - 65.0f, trigRow.getY() + 3.0f, 40.0f, 20.0f);
+        juce::Rectangle<float> testBtn(trigRow.getRight() - 50.0f, trigRow.getY() + 2.0f, 44.0f, 20.0f);
         MiMOLookAndFeel::drawSketchBox(g, testBtn, seed + 105, MiMOLookAndFeel::crayonOchre, 0.40f);
         g.setColour(MiMOLookAndFeel::fountainInk);
-        g.setFont(juce::Font(9.5f, juce::Font::bold));
+        g.setFont(juce::Font(9.0f, juce::Font::bold));
         g.drawText("TEST", testBtn.toNearestInt(), juce::Justification::centred);
 
-        // Righe Modulazione (Velocity e Pressione)
-        float my = box.getY() + 134.0f;
+        // 4. Righe Modulazione (Pitch CV, Dynamic Envelope, Gate Voce)
+        float my = box.getY() + 124.0f;
         for (const auto& m : node.modOutputs)
         {
-            juce::Rectangle<float> row(box.getX() + 12.0f, my, box.getWidth() - 24.0f, 26.0f);
+            juce::Rectangle<float> row(box.getX() + 12.0f, my, box.getWidth() - 24.0f, 24.0f);
             g.setColour(m.colour.withAlpha(0.20f));
             g.fillRoundedRectangle(row, 4.0f);
             g.setColour(MiMOLookAndFeel::fountainInk);
-            g.drawRoundedRectangle(row, 4.0f, 1.2f);
+            g.drawRoundedRectangle(row, 4.0f, 1.0f);
 
-            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.setFont(juce::Font(10.0f, juce::Font::bold));
             g.setColour(MiMOLookAndFeel::fountainInk);
-            g.drawText(m.label, static_cast<int>(row.getX() + 8), static_cast<int>(row.getY()), 90, static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
-            g.setFont(juce::Font(9.5f, juce::Font::plain));
-            g.setColour(MiMOLookAndFeel::inkMuted);
-            g.drawText("(verso manopola)", static_cast<int>(row.getX() + 90), static_cast<int>(row.getY()), static_cast<int>(row.getWidth() - 95), static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
+            g.drawText(m.label, static_cast<int>(row.getX() + 8), static_cast<int>(row.getY()), 130, static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
 
-            my += 32.0f;
+            // Icona stacco cavo se connesso
+            for (const auto& c : comp.cables)
+            {
+                if (c.sourceNodeId == node.id && (c.sourcePinId == m.key || c.sourcePinId == "mod:" + m.key))
+                {
+                    juce::Rectangle<float> discBtn(row.getRight() - 36.0f, row.getY() + 3.0f, 18.0f, 18.0f);
+                    MiMOLookAndFeel::drawSketchBox(g, discBtn, seed + 888, MiMOLookAndFeel::crayonCherry, 0.40f);
+                    g.setColour(MiMOLookAndFeel::fountainInk);
+                    g.setFont(juce::Font(8.5f, juce::Font::bold));
+                    g.drawText("X", discBtn.toNearestInt(), juce::Justification::centred);
+                    break;
+                }
+            }
+
+            my += 28.0f;
         }
     }
     else if (node.isIntegratedCamera || node.id == "hw-webcam" || node.id == "hw-eye")
@@ -544,9 +584,70 @@ void CanvasRenderer::paintHardwareNode(juce::Graphics& g, MainComponent& comp, c
             }
         }
     }
+    else if (node.id == "hw-drum")
+    {
+        // 1. Task 4.4: Selettore Pad Piezo Attivi (1 a 5)
+        juce::Rectangle<float> selRow(box.getX() + 12.0f, box.getY() + 46.0f, box.getWidth() - 24.0f, 20.0f);
+        g.setColour(MiMOLookAndFeel::paperBg);
+        g.fillRoundedRectangle(selRow, 3.0f);
+        g.setColour(MiMOLookAndFeel::fountainInk);
+        g.setFont(juce::Font(8.5f, juce::Font::bold));
+        g.drawText("PAD PIEZO:", static_cast<int>(selRow.getX() + 4), static_cast<int>(selRow.getY()), 65, static_cast<int>(selRow.getHeight()), juce::Justification::centredLeft);
+
+        const float padBtnW = 22.0f;
+        for (int p = 0; p < 5; ++p)
+        {
+            const float bx = selRow.getX() + 72.0f + static_cast<float>(p) * (padBtnW + 4.0f);
+            juce::Rectangle<float> pBtn(bx, selRow.getY() + 1.0f, padBtnW, selRow.getHeight() - 2.0f);
+            const bool isCurrentSel = (comp.activePiezoCount == p + 1);
+
+            g.setColour(isCurrentSel ? MiMOLookAndFeel::crayonSage : (p < comp.activePiezoCount ? MiMOLookAndFeel::crayonSage.withAlpha(0.25f) : MiMOLookAndFeel::paperCard));
+            g.fillRoundedRectangle(pBtn, 3.0f);
+            g.setColour(isCurrentSel ? MiMOLookAndFeel::fountainInk : MiMOLookAndFeel::inkMuted);
+            g.drawRoundedRectangle(pBtn, 3.0f, 1.0f);
+            g.drawText(juce::String(p + 1), pBtn.toNearestInt(), juce::Justification::centred);
+        }
+
+        // 2. Righe dei singoli sensori piezo attivi (con TEST dedicato e Trigger Pin)
+        static const char* padNames[] = { "Pad 1 (Kick)", "Pad 2 (Snare)", "Pad 3 (Hi-Hat)", "Pad 4 (Tom)", "Pad 5 (Perc)" };
+        float py = box.getY() + 70.0f;
+        for (int i = 0; i < comp.activePiezoCount; ++i)
+        {
+            juce::Rectangle<float> padRow(box.getX() + 12.0f, py, box.getWidth() - 24.0f, 26.0f);
+            const bool isFired = comp.piezoTriggerFired[i];
+
+            g.setColour(isFired ? MiMOLookAndFeel::crayonCherry.withAlpha(0.85f) : juce::Colour(0xFFFF7A18).withAlpha(0.18f));
+            g.fillRoundedRectangle(padRow, 4.0f);
+            g.setColour(isFired ? MiMOLookAndFeel::crayonCherry : juce::Colour(0xFFFF7A18));
+            g.drawRoundedRectangle(padRow, 4.0f, 1.2f);
+
+            g.setFont(juce::Font(10.0f, juce::Font::bold));
+            g.setColour(isFired ? MiMOLookAndFeel::polaroidWhite : MiMOLookAndFeel::fountainInk);
+            g.drawText(isFired ? "TRIG! " + juce::String(padNames[i]) : padNames[i],
+                       static_cast<int>(padRow.getX() + 8), static_cast<int>(padRow.getY()), 125, static_cast<int>(padRow.getHeight()), juce::Justification::centredLeft);
+
+            // Tasto Test per ogni singolo pad
+            juce::Rectangle<float> testBtn(padRow.getRight() - 50.0f, padRow.getY() + 3.0f, 44.0f, 20.0f);
+            MiMOLookAndFeel::drawSketchBox(g, testBtn, seed + 500 + i, isFired ? MiMOLookAndFeel::crayonSage : MiMOLookAndFeel::crayonOchre, 0.45f);
+            g.setColour(MiMOLookAndFeel::fountainInk);
+            g.setFont(juce::Font(9.0f, juce::Font::bold));
+            g.drawText("TEST", testBtn.toNearestInt(), juce::Justification::centred);
+
+            py += 28.0f;
+        }
+
+        // 3. Riga Dinamica & Velocity
+        juce::Rectangle<float> velRow(box.getX() + 12.0f, py + 2.0f, box.getWidth() - 24.0f, 24.0f);
+        g.setColour(MiMOLookAndFeel::crayonCherry.withAlpha(0.18f));
+        g.fillRoundedRectangle(velRow, 4.0f);
+        g.setColour(MiMOLookAndFeel::fountainInk);
+        g.drawRoundedRectangle(velRow, 4.0f, 1.0f);
+        g.setFont(juce::Font(9.5f, juce::Font::bold));
+        g.drawText("Velocity Dinamica", static_cast<int>(velRow.getX() + 8), static_cast<int>(velRow.getY()), 130, static_cast<int>(velRow.getHeight()), juce::Justification::centredLeft);
+    }
     else
     {
-        // Modulo Hardware standard (es. hw-drum)
+        // Modulo Hardware generico fallback
         float my = box.getY() + 46.0f;
         for (const auto& m : node.modOutputs)
         {
@@ -560,24 +661,9 @@ void CanvasRenderer::paintHardwareNode(juce::Graphics& g, MainComponent& comp, c
             g.setColour(MiMOLookAndFeel::fountainInk);
             g.drawText(m.label, static_cast<int>(row.getX() + 8), static_cast<int>(row.getY()), 130, static_cast<int>(row.getHeight()), juce::Justification::centredLeft);
 
-            // Icona stacco cavo se connesso
-            for (const auto& c : comp.cables)
-            {
-                if (c.sourceNodeId == node.id && (c.sourcePinId == m.key || c.sourcePinId == "mod:" + m.key))
-                {
-                    juce::Rectangle<float> discBtn(row.getRight() - 40.0f, row.getY() + 4.0f, 18.0f, 18.0f);
-                    MiMOLookAndFeel::drawSketchBox(g, discBtn, seed + 888, MiMOLookAndFeel::crayonCherry, 0.40f);
-                    g.setColour(MiMOLookAndFeel::fountainInk);
-                    g.setFont(juce::Font(9.0f, juce::Font::bold));
-                    g.drawText("X", discBtn.toNearestInt(), juce::Justification::centred);
-                    break;
-                }
-            }
-
             my += 32.0f;
         }
 
-        // Tasto Test
         juce::Rectangle<float> testBtn(box.getX() + 12.0f, my + 4.0f, box.getWidth() - 24.0f, 24.0f);
         MiMOLookAndFeel::drawSketchBox(g, testBtn, seed + 10, MiMOLookAndFeel::crayonOchre, 0.40f);
         g.setColour(MiMOLookAndFeel::fountainInk);

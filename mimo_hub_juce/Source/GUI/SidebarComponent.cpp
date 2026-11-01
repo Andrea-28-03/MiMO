@@ -817,7 +817,7 @@ bool SidebarComponent::handleMouseDown(MainComponent& comp, const juce::Point<fl
         const juce::Rectangle<float> drumCard(cardX, integBody.getY() + 6.0f, cardW, 44.0f);
         if (drumCard.contains(pt))
         {
-            comp.draggedCatalogItem = { "hw-drum", "Hardware P1", "Modulo Batteria", "Sensori Piezo", "Trigger piezo I2C", MiMOLookAndFeel::crayonSage, false, false, {} };
+            comp.draggedCatalogItem = { "hw-drum", "Hardware P1", "Modulo Percussioni Piezo", "1-5 Sensori", "Trigger piezo I2C", MiMOLookAndFeel::crayonSage, false, false, {} };
             comp.dragMode = MainComponent::DragMode::DragSidebarItem;
             comp.currentMousePos = pt;
             comp.repaint();
@@ -828,7 +828,7 @@ bool SidebarComponent::handleMouseDown(MainComponent& comp, const juce::Point<fl
         const juce::Rectangle<float> micCard(cardX, integBody.getY() + 54.0f, cardW, 44.0f);
         if (micCard.contains(pt))
         {
-            comp.draggedCatalogItem = { "integrated-mic", "Integrato", "Microfono PC (Batteria)", "Laptop", "Trigger audio da mic", MiMOLookAndFeel::crayonOchre, false, true, {} };
+            comp.draggedCatalogItem = { "integrated-mic", "Integrato", "Microfono Live & Pitch", "Audio In", "Trigger audio & Pitch CV", MiMOLookAndFeel::crayonOchre, false, true, {} };
             comp.dragMode = MainComponent::DragMode::DragSidebarItem;
             comp.currentMousePos = pt;
             comp.repaint();

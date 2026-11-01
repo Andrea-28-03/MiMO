@@ -21,6 +21,7 @@
 #include "../Devices/HardwareManager.h"
 #include "../Networking/MiMOEyeServer.h"
 #include "../Audio/AudioEngine.h"
+#include "../Audio/PitchDetector.h"
 #include <vector>
 #include <atomic>
 #include <memory>
@@ -168,6 +169,26 @@ private:
     int micHoldSamples = 0;
     bool micArmed = true;
     float getMicThreshold() const noexcept { return juce::jlimit(0.05f, 0.95f, 0.96f - micSensitivity * 0.86f); }
+    void setMicThresholdDirect(float th) noexcept { micSensitivity = juce::jlimit(0.05f, 0.95f, (0.96f - th) / 0.86f); }
+
+    // Pitch & Clock Detection per Microfono (Fase 4)
+    PitchDetector micPitchDetector;
+    std::atomic<float> micDetectedPitchHz { 0.0f };
+    std::atomic<int> micDetectedMidiNote { 0 };
+    std::atomic<float> micDetectedPitchCv { 0.0f };
+    std::atomic<float> micDynamicEnvelope { 0.0f };
+    std::atomic<bool> micIsVoiced { false };
+    std::atomic<bool> micContinuousRetrigger { false };
+    std::atomic<int> micClockBpm { 120 };
+    int micClockSamplesElapsed = 0;
+    juce::String micCurrentNoteName = "--";
+
+    // Modulo Percussioni Piezo (da 1 a 5 sensori a contatto, Fase 4)
+    int activePiezoCount = 4;
+    float piezoSensitivity[5] = { 0.70f, 0.70f, 0.70f, 0.70f, 0.70f };
+    bool piezoTriggerFired[5] = { false, false, false, false, false };
+    int piezoTriggerTicks[5] = { 0, 0, 0, 0, 0 };
+    void triggerPiezoPad(int padIndex, float velocity = 0.85f);
 
     // Motore Audio Modulare DSP
     mimo::audio::AudioEngine audioEngine;

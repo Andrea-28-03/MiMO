@@ -91,16 +91,16 @@
 ## 🎙️ Fase 4: Moduli Hardware & Microfono Interattivo
 *Obiettivo: Portare il controllo fisico ed espressivo al massimo livello di immediatezza.*
 
-- [ ] **4.1. Modulo Microfono: Soglia Interattiva su Visualizer Live** `[@HARDWARE @HUB @AUDIO]`
+- [x] **4.1. Modulo Microfono: Soglia Interattiva su Visualizer Live** `[@HARDWARE @HUB @AUDIO]`
   - Rimozione dello slider separato.
   - L'utente imposta la soglia di trigger trascinando direttamente un marcatore/linea pastello sulla barra di visualizzazione del livello sonoro in tempo reale.
-- [ ] **4.2. Modalità Continuous Retrigger / Clock** `[@AUDIO @HUB @LOGIC]`
+- [x] **4.2. Modalità Continuous Retrigger / Clock** `[@AUDIO @HUB @LOGIC]`
   - Se il segnale microfonico rimane costantemente sopra la soglia impostata, il modulo genera trigger ritmici a cadenza musicale configurabile o emette un gate continuo.
-- [ ] **4.3. Modulo Microfono: Rilevamento Pitch (Vocoder & Melodie con la Voce)** `[@AUDIO @HARDWARE]`
+- [x] **4.3. Modulo Microfono: Rilevamento Pitch (Vocoder & Melodie con la Voce)** `[@AUDIO @HARDWARE]`
   - Rimozione delle uscite inutilizzate e integrazione di un pitch detector monofonico (conversione intonazione vocale in CV/note MIDI) + Dynamic Envelope Follower.
-- [ ] **4.4. Modulo Percussioni Piezo (da 1 a 5 sensori a contatto)** `[@HARDWARE @COMMS @AUDIO]`
+- [x] **4.4. Modulo Percussioni Piezo (da 1 a 5 sensori a contatto)** `[@HARDWARE @COMMS @AUDIO]`
   - Supporto indipendente per 1-5 ingressi piezoelettrici, ciascuno con sensibilità dedicata e assegnabile a uno strumento sonoro distinto.
-- [ ] **4.5. Presa "Strumento" sui Moduli & Fan-Out Multi-Modulo** `[@HUB @AUDIO @COMMS]`
+- [x] **4.5. Presa "Strumento" sui Moduli & Fan-Out Multi-Modulo** `[@HUB @AUDIO @COMMS]`
   - Presa dedicata sul modulo in alto a destra (o una presa per mano sul modulo Camera in corrispondenza del relativo menu).
   - Possibilità per più moduli hardware di pilotare lo stesso strumento contemporaneamente.
 

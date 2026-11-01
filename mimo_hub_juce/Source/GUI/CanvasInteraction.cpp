@@ -213,23 +213,36 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
 
             if (n.isIntegratedMic || n.id == "hw-mic")
             {
-                juce::Rectangle<float> slTrack(box.getX() + 12.0f, box.getY() + 68.0f, box.getWidth() - 24.0f, 14.0f);
-                if (slTrack.expanded(0.0f, 6.0f).contains(worldPt))
+                // Task 4.1: Drag soglia direttamente su VU Meter
+                juce::Rectangle<float> vuBox(box.getX() + 12.0f, box.getY() + 46.0f, box.getWidth() - 24.0f, 22.0f);
+                if (vuBox.expanded(0.0f, 4.0f).contains(worldPt))
                 {
                     comp.dragMode = MainComponent::DragMode::DragCanvasMicSensitivity;
-                    comp.micSensitivity = juce::jlimit(0.05f, 0.95f, (worldPt.x - slTrack.getX()) / slTrack.getWidth());
+                    const float th = juce::jlimit(0.05f, 0.95f, (worldPt.x - (vuBox.getX() + 2.0f)) / (vuBox.getWidth() - 4.0f));
+                    comp.setMicThresholdDirect(th);
                     comp.repaint();
                     return;
                 }
 
-                juce::Rectangle<float> trigRow(box.getX() + 12.0f, box.getY() + 102.0f, box.getWidth() - 24.0f, 26.0f);
-                juce::Rectangle<float> testBtn(trigRow.getRight() - 65.0f, trigRow.getY() + 3.0f, 40.0f, 20.0f);
+                // Task 4.2: Toggle Modalità Clock / Colpo
+                juce::Rectangle<float> modeBtn(box.getX() + 12.0f, box.getY() + 72.0f, 108.0f, 20.0f);
+                if (modeBtn.contains(worldPt))
+                {
+                    comp.micContinuousRetrigger.store(!comp.micContinuousRetrigger.load());
+                    comp.repaint();
+                    return;
+                }
+
+                // Tasto Test Mic
+                juce::Rectangle<float> trigRow(box.getX() + 12.0f, box.getY() + 96.0f, box.getWidth() - 24.0f, 24.0f);
+                juce::Rectangle<float> testBtn(trigRow.getRight() - 50.0f, trigRow.getY() + 2.0f, 44.0f, 20.0f);
                 if (testBtn.contains(worldPt))
                 {
                     comp.lastTriggerSourceCode.store(2);
                     comp.triggerPulseAlpha.store(1.0f);
+                    comp.realMicTriggered.store(true);
+                    comp.audioEngine.triggerFromSource("hw-mic", 0, 0.85f);
                     comp.synthHitVelocity.store(0.85f);
-                    comp.synthInstrumentType.store(0);
                     comp.synthTriggerPending.store(true);
                     comp.repaint();
                     return;
@@ -237,17 +250,33 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
             }
             else if (n.id == "hw-drum")
             {
-                float my = box.getY() + 46.0f + static_cast<float>(n.modOutputs.size()) * 32.0f + 4.0f;
-                juce::Rectangle<float> testBtn(box.getX() + 12.0f, my, box.getWidth() - 24.0f, 24.0f);
-                if (testBtn.contains(worldPt))
+                // Task 4.4: Selettore Pad Piezo (1 a 5)
+                juce::Rectangle<float> selRow(box.getX() + 12.0f, box.getY() + 46.0f, box.getWidth() - 24.0f, 20.0f);
+                const float padBtnW = 22.0f;
+                for (int p = 0; p < 5; ++p)
                 {
-                    comp.lastTriggerSourceCode.store(1);
-                    comp.triggerPulseAlpha.store(1.0f);
-                    comp.synthHitVelocity.store(0.9f);
-                    comp.synthInstrumentType.store(0);
-                    comp.synthTriggerPending.store(true);
-                    comp.repaint();
-                    return;
+                    const float bx = selRow.getX() + 72.0f + static_cast<float>(p) * (padBtnW + 4.0f);
+                    juce::Rectangle<float> pBtn(bx, selRow.getY() + 1.0f, padBtnW, selRow.getHeight() - 2.0f);
+                    if (pBtn.contains(worldPt))
+                    {
+                        comp.activePiezoCount = p + 1;
+                        comp.repaint();
+                        return;
+                    }
+                }
+
+                // Task 4.4: Tasti TEST dedicati per ciascun pad piezo attivo
+                float py = box.getY() + 70.0f;
+                for (int i = 0; i < comp.activePiezoCount; ++i)
+                {
+                    juce::Rectangle<float> padRow(box.getX() + 12.0f, py, box.getWidth() - 24.0f, 26.0f);
+                    juce::Rectangle<float> testBtn(padRow.getRight() - 50.0f, padRow.getY() + 3.0f, 44.0f, 20.0f);
+                    if (testBtn.contains(worldPt))
+                    {
+                        comp.triggerPiezoPad(i, 0.88f);
+                        return;
+                    }
+                    py += 28.0f;
                 }
             }
 

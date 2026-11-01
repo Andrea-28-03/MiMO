@@ -193,10 +193,11 @@ void CanvasInteraction::handleMouseDrag(MainComponent& comp, const juce::MouseEv
             if (n.isIntegratedMic || n.id == "hw-mic")
             {
                 const auto worldPt = comp.screenToWorld(pt);
-                juce::Rectangle<float> slTrack(n.pos.x + 12.0f, n.pos.y + 68.0f, n.size.x - 24.0f, 14.0f);
-                if (slTrack.getWidth() > 0.0f)
+                juce::Rectangle<float> vuBox(n.pos.x + 12.0f, n.pos.y + 46.0f, n.size.x - 24.0f, 24.0f);
+                if (vuBox.getWidth() > 4.0f)
                 {
-                    comp.micSensitivity = juce::jlimit(0.05f, 0.95f, (worldPt.x - slTrack.getX()) / slTrack.getWidth());
+                    const float th = juce::jlimit(0.05f, 0.95f, (worldPt.x - (vuBox.getX() + 2.0f)) / (vuBox.getWidth() - 4.0f));
+                    comp.setMicThresholdDirect(th);
                     comp.repaint();
                 }
                 break;
@@ -313,9 +314,10 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
                 }
             }
 
+            const bool isFanInAllowed = isTrig || dstPin.startsWith("trigger:") || dstPin.startsWith("inst:") || (dstPin == "audio:in" && !isMod);
             comp.cables.erase(std::remove_if(comp.cables.begin(), comp.cables.end(),
                 [&](const CanvasCable& c) {
-                    if (c.targetNodeId == dstNode && c.targetPinId == dstPin)
+                    if (!isFanInAllowed && c.targetNodeId == dstNode && c.targetPinId == dstPin)
                         return true;
                     if (c.sourceNodeId == srcNode && c.sourcePinId == srcPin &&
                         c.targetNodeId == dstNode && c.targetPinId == dstPin)

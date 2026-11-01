@@ -158,11 +158,14 @@ void MainComponent::audioDeviceIOCallbackWithContext (const float* const* inputC
         return;
 
     float peak = 0.0f;
+    const float* monoIn = nullptr;
     for (int ch = 0; ch < numInputChannels; ++ch)
     {
         const float* in = inputChannelData[ch];
         if (in == nullptr)
             continue;
+        if (monoIn == nullptr)
+            monoIn = in;
         const auto range = juce::FloatVectorOperations::findMinAndMax(in, numSamples);
         peak = std::max(peak, std::max(std::abs(range.getStart()), std::abs(range.getEnd())));
     }
@@ -175,15 +178,54 @@ void MainComponent::audioDeviceIOCallbackWithContext (const float* const* inputC
     const float smoothed = (level > current) ? (current * 0.25f + level * 0.75f) : (current * 0.90f + level * 0.10f);
     realMicLevel.store(juce::jlimit(0.0f, 1.0f, smoothed));
 
+    // Pitch Detection & Dynamic Envelope Follower (Task 4.3)
+    if (monoIn != nullptr && numSamples > 0)
+    {
+        const auto pres = micPitchDetector.processBlock(monoIn, numSamples);
+        micDetectedPitchHz.store(pres.frequencyHz);
+        micDetectedMidiNote.store(pres.midiNote);
+        micDetectedPitchCv.store(pres.normalizedCv);
+        micDynamicEnvelope.store(pres.envelopeCv);
+        micIsVoiced.store(pres.isVoiced);
+
+        if (isMicInCanvas())
+        {
+            audioEngine.setModulation("hw-mic", "pitch", pres.normalizedCv);
+            audioEngine.setModulation("hw-mic", "env", pres.envelopeCv);
+            audioEngine.setModulation("hw-mic", "gate", (level >= micThresholdAtomic.load()) ? 1.0f : 0.0f);
+        }
+    }
+
     const float threshold = micThresholdAtomic.load();
     if (micHoldSamples > 0)
         micHoldSamples -= numSamples;
 
-    if (level >= threshold && micArmed && micHoldSamples <= 0)
+    // Modalità Continuous Retrigger / Clock (Task 4.2)
+    const bool isClockMode = micContinuousRetrigger.load();
+    if (level >= threshold)
     {
-        const float vel = juce::jlimit(0.25f, 1.0f, (level - threshold) / std::max(0.05f, 1.0f - threshold) * 0.75f + 0.25f);
-        if (isMicInCanvas())
+        bool shouldFire = false;
+        if (isClockMode)
         {
+            const int bpm = std::max(40, micClockBpm.load());
+            const int intervalSamples = static_cast<int>(micSampleRate * (60.0 / bpm * 0.5)); // 1/8 note
+            micClockSamplesElapsed += numSamples;
+            if (micClockSamplesElapsed >= intervalSamples)
+            {
+                micClockSamplesElapsed = 0;
+                shouldFire = true;
+            }
+        }
+        else if (micArmed && micHoldSamples <= 0)
+        {
+            shouldFire = true;
+            micArmed = false;
+            micHoldSamples = static_cast<int>(micSampleRate * 0.075);
+        }
+
+        if (shouldFire && isMicInCanvas())
+        {
+            const float vel = juce::jlimit(0.25f, 1.0f, (level - threshold) / std::max(0.05f, 1.0f - threshold) * 0.75f + 0.25f);
             realMicVelocity.store(vel);
             realMicTriggered.store(true);
             audioEngine.triggerFromSource("hw-mic", 0, vel);
@@ -192,13 +234,28 @@ void MainComponent::audioDeviceIOCallbackWithContext (const float* const* inputC
             synthHitVelocity.store(vel);
             synthTriggerPending.store(true);
         }
-        micArmed = false;
-        micHoldSamples = static_cast<int>(micSampleRate * 0.075);
     }
     else if (level < threshold - 0.06f)
     {
         micArmed = true;
+        micClockSamplesElapsed = 0;
     }
+}
+
+void MainComponent::triggerPiezoPad(int padIndex, float velocity)
+{
+    if (padIndex < 0 || padIndex >= 5)
+        return;
+
+    piezoTriggerFired[padIndex] = true;
+    piezoTriggerTicks[padIndex] = 8;
+    lastTriggerSourceCode.store(1);
+    triggerPulseAlpha.store(1.0f);
+    audioEngine.triggerFromSource("hw-drum", padIndex, velocity);
+    synthHitVelocity.store(velocity);
+    synthTriggerPending.store(true);
+    startTimerHz(60);
+    repaint();
 }
 
 void MainComponent::audioDeviceAboutToStart (juce::AudioIODevice* device)
@@ -207,6 +264,7 @@ void MainComponent::audioDeviceAboutToStart (juce::AudioIODevice* device)
         micSampleRate = device->getCurrentSampleRate();
     micHoldSamples = 0;
     micArmed = true;
+    micPitchDetector.prepare(micSampleRate);
 }
 
 void MainComponent::audioDeviceStopped() {}

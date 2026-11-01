@@ -186,6 +186,11 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
                              MiMOLookAndFeel::fountainInk, { node.pos.x + 29.0f, node.pos.y },
                              { 0.0f, -1.0f }, MiMOLookAndFeel::PinShapeType::AudioCircle });
 
+            // Task 4.5: Presa fisica "STRUM" in alto a destra verso strumenti sonori
+            pins.push_back({ node.id, "inst:out", true, false,
+                             MiMOLookAndFeel::crayonCherry, { node.pos.x + node.size.x, node.pos.y + 17.0f },
+                             { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+
             if (!node.outputGroups.empty())
             {
                 const bool isEye = (node.isIntegratedCamera || node.id == "hw-webcam" || node.id == "hw-eye");
@@ -200,6 +205,19 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
 
                     const float topHeaderCentreY = curY + 13.0f;
                     curY += 26.0f;
+
+                    if (grp.id == "eye_dx")
+                    {
+                        pins.push_back({ node.id, "inst:dx", true, false,
+                                         MiMOLookAndFeel::crayonSage, { node.pos.x + node.size.x, topHeaderCentreY },
+                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                    }
+                    else if (grp.id == "eye_sx")
+                    {
+                        pins.push_back({ node.id, "inst:sx", true, false,
+                                         MiMOLookAndFeel::crayonCyan, { node.pos.x + node.size.x, topHeaderCentreY },
+                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                    }
 
                     if (grp.items.empty()) // Contenitore con sottogruppi (Mano DX / Mano SX)
                     {
@@ -295,23 +313,37 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
 
             if (node.outputGroups.empty())
             {
-                if (node.id == "hw-drum" || node.id == "hw-mic" || node.isIntegratedMic)
+                if (node.id == "hw-mic" || node.isIntegratedMic)
                 {
-                    // Trigger Out (Impulso Colpo) -> Rombo Arancio Fiamma
-                    const float trigY = node.isIntegratedMic ? (node.pos.y + 115.0f) : (node.pos.y + 109.0f);
+                    // Trigger Out (Impulso Colpo / Clock) -> Rombo Arancio Fiamma
                     pins.push_back({ node.id, "trigger:out", true, false,
-                                     juce::Colour(0xFFFF7A18), { node.pos.x + node.size.x, trigY },
+                                     juce::Colour(0xFFFF7A18), { node.pos.x + node.size.x, node.pos.y + 108.0f },
                                      { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
 
-                    // Modulazioni CV (Velocity, Pressione) -> Triangoli orientati verso destra
-                    float my = node.isIntegratedMic ? (node.pos.y + 147.0f) : (node.pos.y + 141.0f);
+                    // Modulazioni CV (Pitch CV, Dynamic Envelope, Gate Voce)
+                    float my = node.pos.y + 136.0f;
                     for (const auto& m : node.modOutputs)
                     {
                         pins.push_back({ node.id, "mod:" + m.key, true, true, m.colour,
                                          { node.pos.x + node.size.x, my },
                                          { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
-                        my += 32.0f;
+                        my += 28.0f;
                     }
+                }
+                else if (node.id == "hw-drum")
+                {
+                    // 1 a 5 sensori piezo indipendenti (Task 4.4)
+                    for (int p = 0; p < 5; ++p)
+                    {
+                        pins.push_back({ node.id, "trigger:piezo" + juce::String(p + 1), true, false,
+                                         juce::Colour(0xFFFF7A18), { node.pos.x + node.size.x, node.pos.y + 85.0f + static_cast<float>(p) * 30.0f },
+                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                    }
+
+                    // Modulazione Velocity Dinamica
+                    pins.push_back({ node.id, "mod:vel", true, true, MiMOLookAndFeel::crayonCherry,
+                                     { node.pos.x + node.size.x, node.pos.y + 85.0f + 5.0f * 30.0f + 14.0f },
+                                     { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::ModulationTri });
                 }
                 else if (node.isIntegratedCamera || node.id == "hw-webcam" || node.id == "hw-eye")
                 {

@@ -1,4 +1,4 @@
-﻿#include "CanvasGraphEditor.h"
+#include "CanvasGraphEditor.h"
 #include "MainComponent.h"
 #include "MiMOLookAndFeel.h"
 #include <algorithm>
@@ -23,29 +23,15 @@ void CanvasGraphEditor::toggleDrumInCanvas(MainComponent& comp)
         CanvasNode drum;
         drum.id = "hw-drum";
         drum.type = NodeType::HardwareModule;
-        drum.label = "Modulo Batteria";
-        drum.subtitle = "Sensori Piezo - I2C Ch1";
+        drum.label = "Modulo Percussioni Piezo";
+        drum.subtitle = "1-5 Sensori Tattili Indipendenti";
         drum.portBadge = "P1";
         drum.pos = { -280.0f, 175.0f };
-        drum.size = { 255.0f, 215.0f };
+        drum.size = { 265.0f, 255.0f };
         drum.crayonColour = MiMOLookAndFeel::crayonSage;
-
-        NodeOutputGroup gTrig;
-        gTrig.id = "drum_trig";
-        gTrig.name = "Impulsi Trigger (Colpo)";
-        gTrig.isExpanded = true;
-        gTrig.items = { { "trigger:out", "Trigger Colpo", juce::Colour(0xFFFF7A18), true, "(verso TRIG strumento)" } };
-
-        NodeOutputGroup gMod;
-        gMod.id = "drum_mod";
-        gMod.name = "Modulazione & Dinamica";
-        gMod.isExpanded = true;
-        gMod.items = {
-            { "mod:vel",   "Velocity",  MiMOLookAndFeel::crayonCherry, false, "(verso manopola)" },
-            { "mod:press", "Pressione", MiMOLookAndFeel::crayonPeach,  false, "(verso manopola)" }
+        drum.modOutputs = {
+            { "vel", "Velocity Dinamica", MiMOLookAndFeel::crayonCherry }
         };
-        drum.outputGroups = { gTrig, gMod };
-        drum.size.y = CanvasGeometry::getNodeCalculatedHeight(drum);
         comp.nodes.push_back(drum);
 
         comp.cables.push_back({ "c-drum-pi", "hw-drum", "audio:out", "rockpi", "audio:p1", false, MiMOLookAndFeel::fountainInk, {} });
@@ -75,15 +61,16 @@ void CanvasGraphEditor::toggleMicInCanvas(MainComponent& comp)
         micNode.id = "hw-mic";
         micNode.type = NodeType::HardwareModule;
         micNode.isIntegratedMic = true;
-        micNode.label = "Microfono PC (Batteria)";
+        micNode.label = "Microfono Live & Pitch";
         micNode.portBadge = "MIC";
-        micNode.subtitle = "Laptop Mic - Trigger Batteria";
+        micNode.subtitle = "Trigger, Pitch CV & Envelope";
         micNode.pos = { -560.0f, 175.0f };
-        micNode.size = { 245.0f, 230.0f };
+        micNode.size = { 260.0f, 260.0f };
         micNode.crayonColour = MiMOLookAndFeel::crayonOchre;
         micNode.modOutputs = {
-            { "vel",   "Velocity",  MiMOLookAndFeel::crayonCherry },
-            { "press", "Pressione", MiMOLookAndFeel::crayonPeach }
+            { "pitch", "Pitch CV (Voce)",       MiMOLookAndFeel::crayonCyan },
+            { "env",   "Dynamic Env Follower",  MiMOLookAndFeel::crayonPeach },
+            { "gate",  "Gate Voce (On/Off)",    MiMOLookAndFeel::crayonMint }
         };
         comp.nodes.push_back(micNode);
         comp.startRealMicrophone();
