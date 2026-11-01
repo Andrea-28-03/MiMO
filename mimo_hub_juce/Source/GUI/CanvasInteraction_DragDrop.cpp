@@ -143,7 +143,7 @@ void CanvasInteraction::handleMouseDrag(MainComponent& comp, const juce::MouseEv
         for (const auto& pin : comp.collectAllPins())
         {
             const bool validDir = (pin.isOutput != comp.cableSourceIsOutput);
-            const bool pinIsTrig = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
+            const bool pinIsTrig = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:") || pin.pinId.startsWith("inst:"));
             const bool typeCompatible = comp.cableSourceIsTrigger ? pinIsTrig : (comp.cableSourceIsMod ? pin.isMod : (!pin.isMod && !pinIsTrig));
 
             if (validDir && pin.nodeId != comp.cableSourceNodeId && typeCompatible)
@@ -219,7 +219,7 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
         for (const auto& pin : allPins)
         {
             const bool validDir = (pin.isOutput != comp.cableSourceIsOutput);
-            const bool pinIsTrig = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
+            const bool pinIsTrig = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:") || pin.pinId.startsWith("inst:"));
             const bool typeCompatible = comp.cableSourceIsTrigger ? pinIsTrig : (comp.cableSourceIsMod ? pin.isMod : (!pin.isMod && !pinIsTrig));
 
             if (validDir && pin.nodeId != comp.cableSourceNodeId && typeCompatible)
@@ -241,7 +241,7 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
             auto dstNode = comp.cableSourceIsOutput ? pin.nodeId        : comp.cableSourceNodeId;
             auto dstPin  = comp.cableSourceIsOutput ? pin.pinId         : comp.cableSourcePinId;
             const bool isMod = comp.cableSourceIsMod || pin.isMod;
-            const bool isTrig = comp.cableSourceIsTrigger || (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
+            const bool isTrig = comp.cableSourceIsTrigger || (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:") || pin.pinId.startsWith("inst:"));
 
             // Task 3.6: Topologia Hub MiMO (Rock Pi) - Reindirizza cavi fisici HW verso porte Rock Pi, mai a MasterOut
             bool isSrcHw = false;

@@ -31,25 +31,16 @@ void CanvasInteraction::handleMouseMove(MainComponent& comp, const juce::MouseEv
         }
     }
 
-    if (comp.hasHoveredPin)
-    {
-        comp.hasHoveredPin = false;
-        comp.repaint();
-    }
-
     // 2. Hover sulle manopole pastello
     for (const auto& kh : comp.collectCanvasKnobs())
-    {
         if (kh.worldBounds.contains(worldPt))
         {
             comp.setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
             return;
         }
-    }
 
     // 3. Hover su un cavo audio o di modulazione
-    const auto nearCableId = comp.findAudioCableNear(worldPt, 18.0f);
-    if (nearCableId.isNotEmpty())
+    if (comp.findAudioCableNear(worldPt, 18.0f).isNotEmpty())
     {
         comp.setMouseCursor(juce::MouseCursor::PointingHandCursor);
         return;
@@ -477,7 +468,7 @@ void CanvasInteraction::handleMouseDown(MainComponent& comp, const juce::MouseEv
             comp.cableSourcePinId = pin.pinId;
             comp.cableSourceIsOutput = pin.isOutput;
             comp.cableSourceIsMod = pin.isMod;
-            comp.cableSourceIsTrigger = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
+            comp.cableSourceIsTrigger = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:") || pin.pinId.startsWith("inst:"));
             comp.cableSourceShape = pin.shapeType;
             comp.cableSourceColour = pin.colour;
             comp.cableStartWorld = pin.worldPos;

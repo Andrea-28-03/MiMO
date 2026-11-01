@@ -175,7 +175,7 @@ void CanvasRenderer::paintPins(juce::Graphics& g, MainComponent& comp, const std
         const bool isHovered = (comp.hasHoveredPin && comp.hoveredPinNodeId == pin.nodeId && comp.hoveredPinId == pin.pinId);
         const bool isSelected = (comp.selectedPinNodeId == pin.nodeId && comp.selectedPinId == pin.pinId);
 
-        const bool pinIsTrig = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:"));
+        const bool pinIsTrig = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:") || pin.pinId.startsWith("inst:"));
         const bool typeCompatible = comp.cableSourceIsTrigger ? pinIsTrig : (comp.cableSourceIsMod ? pin.isMod : (!pin.isMod && !pinIsTrig));
 
         const bool isValidTarget = (comp.dragMode == MainComponent::DragMode::DrawCable && pin.nodeId != comp.cableSourceNodeId &&

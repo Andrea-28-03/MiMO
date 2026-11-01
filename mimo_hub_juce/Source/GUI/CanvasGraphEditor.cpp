@@ -463,7 +463,7 @@ void CanvasGraphEditor::assignInstrumentToHardware(MainComponent& comp, const ju
     {
         comp.cables.push_back({
             "c-trig-" + instNode.id,
-            hwNode->id, "trigger:out",
+            hwNode->id, "inst:out",
             instNode.id, "trigger:in",
             false, juce::Colour(0xFFFF7A18), {}, true
         });
@@ -478,7 +478,7 @@ void CanvasGraphEditor::assignInstrumentToHardware(MainComponent& comp, const ju
     {
         comp.cables.push_back({
             "c-trig-" + instNode.id,
-            hwNode->id, "trigger:dx_pinch_idx",
+            hwNode->id, "inst:out",
             instNode.id, "trigger:in",
             false, juce::Colour(0xFFFF7A18), {}, true
         });
@@ -493,7 +493,7 @@ void CanvasGraphEditor::assignInstrumentToHardware(MainComponent& comp, const ju
     {
         comp.cables.push_back({
             "c-trig-" + instNode.id,
-            hwNode->id, "trigger:out",
+            hwNode->id, "inst:out",
             instNode.id, "trigger:in",
             false, juce::Colour(0xFFFF7A18), {}, true
         });

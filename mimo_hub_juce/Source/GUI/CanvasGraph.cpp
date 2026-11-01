@@ -186,10 +186,10 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
                              MiMOLookAndFeel::fountainInk, { node.pos.x + 29.0f, node.pos.y },
                              { 0.0f, -1.0f }, MiMOLookAndFeel::PinShapeType::AudioCircle });
 
-            // Task 4.5: Presa fisica "STRUM" in alto a destra verso strumenti sonori
+            // Task 4.5: Presa fisica in alto a destra verso strumenti sonori (Pallino Rosso)
             pins.push_back({ node.id, "inst:out", true, false,
                              MiMOLookAndFeel::crayonCherry, { node.pos.x + node.size.x, node.pos.y + 17.0f },
-                             { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                             { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::AudioCircle });
 
             if (!node.outputGroups.empty())
             {
@@ -209,14 +209,14 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
                     if (grp.id == "eye_dx")
                     {
                         pins.push_back({ node.id, "inst:dx", true, false,
-                                         MiMOLookAndFeel::crayonSage, { node.pos.x + node.size.x, topHeaderCentreY },
-                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                                         MiMOLookAndFeel::crayonCherry, { node.pos.x + node.size.x, topHeaderCentreY },
+                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::AudioCircle });
                     }
                     else if (grp.id == "eye_sx")
                     {
                         pins.push_back({ node.id, "inst:sx", true, false,
-                                         MiMOLookAndFeel::crayonCyan, { node.pos.x + node.size.x, topHeaderCentreY },
-                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::TriggerDiamond });
+                                         MiMOLookAndFeel::crayonCherry, { node.pos.x + node.size.x, topHeaderCentreY },
+                                         { 1.0f, 0.0f }, MiMOLookAndFeel::PinShapeType::AudioCircle });
                     }
 
                     if (grp.items.empty()) // Contenitore con sottogruppi (Mano DX / Mano SX)
@@ -393,7 +393,6 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
         }
         else if (node.type == NodeType::InstrumentNode)
         {
-            const bool isPerc = (node.id.containsIgnoreCase("drum") || node.id.containsIgnoreCase("percuss") || node.id.containsIgnoreCase("kit"));
             const bool isScale = (node.id.containsIgnoreCase("scale") || node.id.containsIgnoreCase("quantiz"));
             const bool isFollower = (node.id.containsIgnoreCase("follower") || node.id.containsIgnoreCase("env"));
             const bool isLooper = (node.id.containsIgnoreCase("looper") || node.id.containsIgnoreCase("tape_loop"));
@@ -450,35 +449,10 @@ std::vector<PinHit> CanvasGeometry::collectAllPins(const std::vector<CanvasNode>
             }
             else
             {
-                // Presa Audio In (Cerchio)
-                pins.push_back({ node.id, "audio:in", false, false, MiMOLookAndFeel::fountainInk,
+                // Unico pallino rosso a sinistra per tutti gli strumenti
+                pins.push_back({ node.id, "trigger:in", false, false, MiMOLookAndFeel::crayonCherry,
                                  { node.pos.x, node.pos.y + 28.0f }, { -1.0f, 0.0f },
                                  MiMOLookAndFeel::PinShapeType::AudioCircle });
-
-                if (isPerc)
-                {
-                    pins.push_back({ node.id, "trigger:kick", false, false, MiMOLookAndFeel::crayonCherry,
-                                     { node.pos.x, node.pos.y + 50.0f }, { -1.0f, 0.0f },
-                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                    pins.push_back({ node.id, "trigger:snare", false, false, MiMOLookAndFeel::crayonPeach,
-                                     { node.pos.x, node.pos.y + 72.0f }, { -1.0f, 0.0f },
-                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                    pins.push_back({ node.id, "trigger:hat", false, false, MiMOLookAndFeel::crayonCyan,
-                                     { node.pos.x, node.pos.y + 94.0f }, { -1.0f, 0.0f },
-                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                    pins.push_back({ node.id, "trigger:tom", false, false, MiMOLookAndFeel::crayonMint,
-                                     { node.pos.x, node.pos.y + 116.0f }, { -1.0f, 0.0f },
-                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                    pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
-                                     { node.pos.x, node.pos.y + 138.0f }, { -1.0f, 0.0f },
-                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                }
-                else
-                {
-                    pins.push_back({ node.id, "trigger:in", false, false, juce::Colour(0xFFFF7A18),
-                                     { node.pos.x, node.pos.y + 58.0f }, { -1.0f, 0.0f },
-                                     MiMOLookAndFeel::PinShapeType::TriggerDiamond });
-                }
             }
         }
         else if (node.type == NodeType::MasterOut)

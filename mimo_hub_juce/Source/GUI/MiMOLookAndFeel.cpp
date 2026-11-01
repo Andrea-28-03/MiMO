@@ -381,6 +381,12 @@ void MiMOLookAndFeel::drawPinJack(juce::Graphics& g, juce::Point<float> pos, flo
         // FORMA: CERCHIO (AUDIO STEREO)
         // -------------------------------------------------------------
         // Base presa jack
+        if (isFiringPulse)
+        {
+            r *= 1.30f;
+            g.setColour(colour.withAlpha(0.60f));
+            g.drawEllipse(pos.x - r - 2.0f, pos.y - r - 2.0f, (r + 2.0f) * 2.0f, (r + 2.0f) * 2.0f, 3.0f);
+        }
         g.setColour(isDarkMode ? juce::Colour(0xFF1E2126) : juce::Colour(0xFFECE7DE));
         g.fillEllipse(pos.x - r, pos.y - r, r * 2.0f, r * 2.0f);
 

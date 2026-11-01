@@ -148,13 +148,6 @@ void CanvasRenderer::paintHardwareNode(juce::Graphics& g, MainComponent& comp, c
     g.setFont(juce::Font(10.5f, juce::Font::bold));
     g.drawText("X", closeBtn.toNearestInt(), juce::Justification::centred);
 
-    // Task 4.5: Badge presa fisica "STRUM" in alto a destra verso strumenti sonori
-    juce::Rectangle<float> strumBadge(box.getRight() - 68.0f, box.getY() + 8.0f, 38.0f, 18.0f);
-    MiMOLookAndFeel::drawSketchBox(g, strumBadge, seed + 999, MiMOLookAndFeel::crayonCherry, 0.45f);
-    g.setColour(MiMOLookAndFeel::fountainInk);
-    g.setFont(juce::Font(8.5f, juce::Font::bold));
-    g.drawText("STRUM", strumBadge.toNearestInt(), juce::Justification::centred);
-
     // Modulo Occhio / Webcam pulsanti QR e VID
     if (node.isIntegratedCamera || node.id == "hw-webcam" || node.id == "hw-eye")
     {
@@ -828,18 +821,12 @@ void CanvasRenderer::paintInstrumentNode(juce::Graphics& g, MainComponent& comp,
 
     MiMOLookAndFeel::drawSketchBox(g, box, seed, node.crayonColour, 0.58f, glow, isNodeSelected ? 3.0f : 2.0f, false, MiMOLookAndFeel::paperCard);
 
-    // Badge Hardware
-    juce::Rectangle<float> badge(box.getX() + 10.0f, box.getY() + 10.0f, 32.0f, 20.0f);
-    MiMOLookAndFeel::drawSketchBox(g, badge, seed + 1, MiMOLookAndFeel::crayonOchre, 0.40f);
     g.setColour(MiMOLookAndFeel::fountainInk);
-    g.setFont(juce::Font(10.5f, juce::Font::bold));
-    g.drawText(node.portBadge, badge.toNearestInt(), juce::Justification::centred);
-
     g.setFont(juce::Font(14.0f, juce::Font::bold));
-    g.drawText(node.label, static_cast<int>(box.getX() + 48), static_cast<int>(box.getY() + 8), static_cast<int>(box.getWidth() - 80), 18, juce::Justification::centredLeft);
+    g.drawText(node.label, static_cast<int>(box.getX() + 14), static_cast<int>(box.getY() + 8), static_cast<int>(box.getWidth() - 46), 18, juce::Justification::centredLeft);
     g.setColour(MiMOLookAndFeel::inkMuted);
     g.setFont(juce::Font(11.0f, juce::Font::plain));
-    g.drawText(node.subtitle, static_cast<int>(box.getX() + 48), static_cast<int>(box.getY() + 24), static_cast<int>(box.getWidth() - 80), 14, juce::Justification::centredLeft);
+    g.drawText(node.subtitle, static_cast<int>(box.getX() + 14), static_cast<int>(box.getY() + 24), static_cast<int>(box.getWidth() - 46), 14, juce::Justification::centredLeft);
 
     // Tasto Elimina Strumento [X]
     juce::Rectangle<float> closeBtn(box.getRight() - 25.0f, box.getY() + 8.0f, 18.0f, 18.0f);

@@ -356,6 +356,14 @@ void MainComponent::syncAudioRoutes()
         return false;
     }), cables.end());
 
+    // Normalizza i cavi in ingresso sugli strumenti sul singolo pallino rosso "trigger:in"
+    for (auto& c : cables)
+        for (const auto& n : nodes)
+            if (n.id == c.targetNodeId && n.type == NodeType::InstrumentNode &&
+                !n.id.containsIgnoreCase("looper") && !n.id.containsIgnoreCase("follower") && !n.id.containsIgnoreCase("scale"))
+                if (c.targetPinId == "audio:in" || c.targetPinId.startsWith("trigger:") || c.targetPinId.startsWith("inst:"))
+                    c.targetPinId = "trigger:in";
+
     std::vector<mimo::audio::NodeAudioRoute> routes;
     routes.reserve(cables.size());
     for (const auto& c : cables)
