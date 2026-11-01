@@ -168,7 +168,8 @@ void CanvasGraphEditor::insertEffectOnCable(MainComponent& comp, const CatalogIt
     {
         isVerticalCable = true;
     }
-    else if (sourceNode->type == NodeType::HardwareModule || (sourceNode->type == NodeType::NestedEffect && sourceNode->isVerticalFlow))
+    else if ((sourceNode->type == NodeType::HardwareModule && orig.sourcePinId == "audio:out") ||
+             (sourceNode->type == NodeType::NestedEffect && sourceNode->isVerticalFlow && targetNode->type != NodeType::InstrumentNode))
     {
         isVerticalCable = true;
     }
@@ -425,27 +426,50 @@ void CanvasGraphEditor::assignInstrumentToHardware(MainComponent& comp, const ju
 {
     CanvasNode* hwNode = nullptr;
     for (auto& n : comp.nodes)
-    {
-        if (n.id == hwNodeId)
-        {
-            hwNode = &n;
-            break;
-        }
-    }
-    if (hwNode == nullptr)
-        return;
+        if (n.id == hwNodeId) { hwNode = &n; break; }
+    if (hwNode == nullptr) return;
 
     comp.pushUndoSnapshot();
 
-    // Calcola la posizione libera immediatamente alla destra del modulo hardware (Task 3.5)
+    // Trova tutti gli strumenti già collegati a questo modulo hardware
+    std::vector<CanvasNode*> connectedInsts;
+    for (auto& n : comp.nodes)
+    {
+        if (n.type == NodeType::InstrumentNode)
+        {
+            for (const auto& c : comp.cables)
+            {
+                if ((c.sourceNodeId == hwNodeId && c.targetNodeId == n.id) ||
+                    (c.targetNodeId == hwNodeId && c.sourceNodeId == n.id))
+                {
+                    connectedInsts.push_back(&n);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Posizionamento: accanto al modulo se è il primo, oppure impilato sotto al precedente
     const float spacingX = 45.0f;
-    const juce::Point<float> instPos { hwNode->pos.x + hwNode->size.x + spacingX, hwNode->pos.y };
+    float targetX = hwNode->pos.x + hwNode->size.x + spacingX;
+    float targetY = hwNode->pos.y;
+    if (!connectedInsts.empty())
+    {
+        float maxBottomY = hwNode->pos.y;
+        for (const auto* inst : connectedInsts)
+        {
+            targetX = inst->pos.x;
+            maxBottomY = std::max(maxBottomY, inst->pos.y + inst->size.y);
+        }
+        targetY = maxBottomY + 18.0f;
+    }
+    const juce::Point<float> instPos { targetX, targetY };
 
     // Fai spazio ai nodi che si trovano a destra
     const float shiftWidth = 330.0f + spacingX;
     for (auto& n : comp.nodes)
     {
-        if (n.id != hwNodeId && n.id != "rockpi" && n.pos.x >= instPos.x - 20.0f && std::abs(n.pos.y - hwNode->pos.y) < 220.0f)
+        if (n.id != hwNodeId && n.id != "rockpi" && n.pos.x >= instPos.x - 20.0f && std::abs(n.pos.y - targetY) < 160.0f)
         {
             n.targetPos.x = n.pos.x + shiftWidth;
             n.isAnimatingPos = true;
@@ -458,45 +482,34 @@ void CanvasGraphEditor::assignInstrumentToHardware(MainComponent& comp, const ju
     instNode.isAnimatingPos = false;
     comp.nodes.push_back(instNode);
 
-    // Collega cavi di trigger e modulazione dal controller allo strumento
-    if (hwNode->id == "hw-drum")
+    // Assegna la presa corretta in base al numero di strumenti già collegati
+    juce::String srcSocket = "inst:out";
+    if (hwNode->isIntegratedCamera || hwNode->id == "hw-webcam" || hwNode->id == "hw-eye")
     {
-        comp.cables.push_back({
-            "c-trig-" + instNode.id,
-            hwNode->id, "inst:out",
-            instNode.id, "trigger:in",
-            false, juce::Colour(0xFFFF7A18), {}, true
-        });
-        comp.cables.push_back({
-            "c-vel-" + instNode.id,
-            hwNode->id, "mod:vel",
-            instNode.id, "param:direct.vol",
-            true, MiMOLookAndFeel::crayonCherry, {}
-        });
+        if (connectedInsts.empty()) srcSocket = "inst:dx";
+        else if (connectedInsts.size() == 1) srcSocket = "inst:sx";
+        else srcSocket = "inst:out";
     }
-    else if (hwNode->isIntegratedCamera || hwNode->id == "hw-webcam" || hwNode->id == "hw-eye")
+    else if (hwNode->id == "hw-drum")
     {
-        comp.cables.push_back({
-            "c-trig-" + instNode.id,
-            hwNode->id, "inst:out",
-            instNode.id, "trigger:in",
-            false, juce::Colour(0xFFFF7A18), {}, true
-        });
-        comp.cables.push_back({
-            "c-mod-" + instNode.id,
-            hwNode->id, "mod:dx_y",
-            instNode.id, "param:direct.cutoff",
-            true, MiMOLookAndFeel::crayonOchre, {}
-        });
+        const int padIdx = static_cast<int>(connectedInsts.size()) + 1;
+        if (padIdx <= 5) srcSocket = "trigger:piezo" + juce::String(padIdx);
+        else srcSocket = "inst:out";
     }
-    else // hw-mic
+
+    comp.cables.push_back({
+        "c-trig-" + instNode.id,
+        hwNode->id, srcSocket,
+        instNode.id, "trigger:in",
+        false, juce::Colour(0xFFFF7A18), {}, true
+    });
+
+    if (connectedInsts.empty())
     {
-        comp.cables.push_back({
-            "c-trig-" + instNode.id,
-            hwNode->id, "inst:out",
-            instNode.id, "trigger:in",
-            false, juce::Colour(0xFFFF7A18), {}, true
-        });
+        if (hwNode->id == "hw-drum")
+            comp.cables.push_back({ "c-vel-" + instNode.id, hwNode->id, "mod:vel", instNode.id, "param:direct.vol", true, MiMOLookAndFeel::crayonCherry, {} });
+        else if (hwNode->isIntegratedCamera || hwNode->id == "hw-webcam" || hwNode->id == "hw-eye")
+            comp.cables.push_back({ "c-mod-" + instNode.id, hwNode->id, "mod:dx_y", instNode.id, "param:direct.cutoff", true, MiMOLookAndFeel::crayonOchre, {} });
     }
 
     hwNode->hasInstrument = true;

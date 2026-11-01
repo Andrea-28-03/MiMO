@@ -382,7 +382,8 @@ void MainComponent::syncAudioRoutes()
                       n.id.containsIgnoreCase("lfo") || n.id.containsIgnoreCase("follower") ||
                       n.id.containsIgnoreCase("scale") || n.id.containsIgnoreCase("looper");
         d.isEffect = (n.type == NodeType::NestedEffect);
-        d.isInstrument = !d.isUtility && !d.isEffect && (n.type == NodeType::InstrumentNode || n.hasInstrument);
+        d.isHardware = (n.type == NodeType::HardwareModule);
+        d.isInstrument = (n.type == NodeType::InstrumentNode);
         d.isBypassed = n.isBypassed;
         descriptors.push_back(d);
     }

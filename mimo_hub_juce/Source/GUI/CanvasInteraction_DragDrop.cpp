@@ -144,7 +144,11 @@ void CanvasInteraction::handleMouseDrag(MainComponent& comp, const juce::MouseEv
         {
             const bool validDir = (pin.isOutput != comp.cableSourceIsOutput);
             const bool pinIsTrig = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:") || pin.pinId.startsWith("inst:"));
-            const bool typeCompatible = comp.cableSourceIsTrigger ? pinIsTrig : (comp.cableSourceIsMod ? pin.isMod : (!pin.isMod && !pinIsTrig));
+            bool typeCompatible = false;
+            if (comp.cableSourceIsMod) typeCompatible = pin.isMod;
+            else if (pin.isMod) typeCompatible = false;
+            else if (comp.cableSourceIsTrigger) typeCompatible = pinIsTrig || pin.pinId == "audio:in";
+            else typeCompatible = (!pinIsTrig) || pin.pinId == "trigger:in";
 
             if (validDir && pin.nodeId != comp.cableSourceNodeId && typeCompatible)
             {
@@ -220,7 +224,11 @@ void CanvasInteraction::handleMouseUp(MainComponent& comp, const juce::MouseEven
         {
             const bool validDir = (pin.isOutput != comp.cableSourceIsOutput);
             const bool pinIsTrig = (pin.shapeType == MiMOLookAndFeel::PinShapeType::TriggerDiamond || pin.pinId.startsWith("trigger:") || pin.pinId.startsWith("inst:"));
-            const bool typeCompatible = comp.cableSourceIsTrigger ? pinIsTrig : (comp.cableSourceIsMod ? pin.isMod : (!pin.isMod && !pinIsTrig));
+            bool typeCompatible = false;
+            if (comp.cableSourceIsMod) typeCompatible = pin.isMod;
+            else if (pin.isMod) typeCompatible = false;
+            else if (comp.cableSourceIsTrigger) typeCompatible = pinIsTrig || pin.pinId == "audio:in";
+            else typeCompatible = (!pinIsTrig) || pin.pinId == "trigger:in";
 
             if (validDir && pin.nodeId != comp.cableSourceNodeId && typeCompatible)
             {

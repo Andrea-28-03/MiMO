@@ -35,6 +35,7 @@ struct NodeGraphDescriptor
     juce::String engine;
     bool isEffect = false;
     bool isInstrument = false;
+    bool isHardware = false;
     bool isUtility = false;
     bool isBypassed = false;
 };
@@ -53,6 +54,7 @@ public:
         juce::String category;
         juce::String engine;
         bool isInstrument = false;
+        bool isHardware = false;
         bool isEffect = false;
         bool isUtility = false;
 
@@ -83,27 +85,13 @@ public:
         if (isAudioRunning)
             return true;
 
-        if (deviceManager == nullptr)
-            deviceManager = std::make_unique<juce::AudioDeviceManager>();
-
-        juce::AudioDeviceManager::AudioDeviceSetup setup;
-        setup.sampleRate = sampleRate;
-        setup.bufferSize = bufferSize;
-
-        const auto result = deviceManager->initialise(0, 2, nullptr, true);
-        if (result.isNotEmpty())
-        {
-            deviceManager->initialiseWithDefaultDevices(0, 2);
-        }
-
-        currentSampleRate = deviceManager->getCurrentAudioDevice() != nullptr 
-                            ? deviceManager->getCurrentAudioDevice()->getCurrentSampleRate() 
-                            : static_cast<double>(sampleRate);
-
+        if (deviceManager == nullptr) deviceManager = std::make_unique<juce::AudioDeviceManager>();
+        juce::AudioDeviceManager::AudioDeviceSetup setup; setup.sampleRate = sampleRate; setup.bufferSize = bufferSize;
+        if (deviceManager->initialise(0, 2, nullptr, true).isNotEmpty()) deviceManager->initialiseWithDefaultDevices(0, 2);
+        currentSampleRate = deviceManager->getCurrentAudioDevice() != nullptr ? deviceManager->getCurrentAudioDevice()->getCurrentSampleRate() : static_cast<double>(sampleRate);
         resetDSP(currentSampleRate);
         deviceManager->addAudioCallback(this);
-        isAudioRunning = true;
-        return true;
+        isAudioRunning = true; return true;
     }
 
     void stopAudio()
@@ -168,6 +156,7 @@ public:
             {
                 // Riutilizza il nodo esistente per preservare lo stato dei buffer/code
                 existingNode->isInstrument = d.isInstrument;
+                existingNode->isHardware = d.isHardware;
                 existingNode->isEffect = d.isEffect;
                 existingNode->isUtility = d.isUtility;
                 existingNode->isBypassed.store(d.isBypassed);
@@ -184,6 +173,7 @@ public:
                 node->category = d.category;
                 node->engine = d.engine;
                 node->isInstrument = d.isInstrument;
+                node->isHardware = d.isHardware;
                 node->isEffect = d.isEffect;
                 node->isUtility = d.isUtility;
                 node->isBypassed.store(d.isBypassed);
@@ -263,37 +253,22 @@ public:
     bool getNodeBypass(const juce::String& nodeId) const
     {
         const std::lock_guard<std::mutex> lock(graphMutex);
-        for (const auto& node : graphNodes)
-        {
-            if (node->id == nodeId)
-                return node->isBypassed.load();
-        }
+        for (const auto& n : graphNodes) if (n->id == nodeId) return n->isBypassed.load();
         return false;
     }
 
     float getNodePeak(const juce::String& nodeId) const
     {
         const std::lock_guard<std::mutex> lock(graphMutex);
-        for (const auto& node : graphNodes)
-        {
-            if (node->id == nodeId)
-                return node->realtimePeak.load();
-        }
+        for (const auto& n : graphNodes) if (n->id == nodeId) return n->realtimePeak.load();
         return 0.0f;
     }
 
     float getNodeModulationValue(const juce::String& nodeId, const juce::String& pinId = "mod:out") const
     {
         const std::lock_guard<std::mutex> lock(graphMutex);
-        for (const auto& node : graphNodes)
-        {
-            if (node->id == nodeId)
-            {
-                if (node->processor != nullptr)
-                    return node->processor->getModulationValue(pinId);
-                return -1.0f;
-            }
-        }
+        for (const auto& n : graphNodes)
+            if (n->id == nodeId && n->processor != nullptr) return n->processor->getModulationValue(pinId);
         return -1.0f;
     }
 
@@ -388,7 +363,20 @@ public:
 
                 if (matchSource && pinMatches)
                 {
-                    targets.push_back({ r.targetNodeId, specificVoice });
+                    juce::String targetInstId = r.targetNodeId;
+                    for (const auto& n : graphNodes)
+                    {
+                        if (n->id == targetInstId && n->isEffect)
+                        {
+                            for (const auto& r2 : activeRoutes)
+                                if (r2.sourceNodeId == targetInstId)
+                                    for (const auto& other : graphNodes)
+                                        if (other->id == r2.targetNodeId && other->isInstrument)
+                                            targetInstId = other->id;
+                            break;
+                        }
+                    }
+                    targets.push_back({ targetInstId, specificVoice });
                 }
             }
 
@@ -503,31 +491,12 @@ public:
     void setModulation(const juce::String& paramKey, float valueNorm)
     {
         const float v = juce::jlimit(0.0f, 1.0f, valueNorm);
-        if (paramKey == "cutoff")
-        {
-            const float hz = 40.0f * std::pow(400.0f, v);
-            filterCutoffHz.store(hz);
-        }
-        else if (paramKey == "res" || paramKey == "resonance")
-        {
-            filterReso.store(juce::jlimit(0.2f, 12.0f, 0.2f + v * 8.0f));
-        }
-        else if (paramKey == "delay_time" || paramKey == "time")
-        {
-            delayTimeMs.store(juce::jlimit(20.0f, 1200.0f, 20.0f + v * 900.0f));
-        }
-        else if (paramKey == "delay_feedback" || paramKey == "fb")
-        {
-            delayFeedback.store(juce::jlimit(0.0f, 90.0f, v * 85.0f));
-        }
-        else if (paramKey == "reverb_room" || paramKey == "room")
-        {
-            reverbRoomSize.store(juce::jlimit(0.0f, 100.0f, v * 100.0f));
-        }
-        else if (paramKey == "reverb_mix" || paramKey == "mix")
-        {
-            reverbWetMix.store(juce::jlimit(0.0f, 100.0f, v * 100.0f));
-        }
+        if (paramKey == "cutoff") filterCutoffHz.store(40.0f * std::pow(400.0f, v));
+        else if (paramKey == "res" || paramKey == "resonance") filterReso.store(juce::jlimit(0.2f, 12.0f, 0.2f + v * 8.0f));
+        else if (paramKey == "delay_time" || paramKey == "time") delayTimeMs.store(juce::jlimit(20.0f, 1200.0f, 20.0f + v * 900.0f));
+        else if (paramKey == "delay_feedback" || paramKey == "fb") delayFeedback.store(juce::jlimit(0.0f, 90.0f, v * 85.0f));
+        else if (paramKey == "reverb_room" || paramKey == "room") reverbRoomSize.store(juce::jlimit(0.0f, 100.0f, v * 100.0f));
+        else if (paramKey == "reverb_mix" || paramKey == "mix") reverbWetMix.store(juce::jlimit(0.0f, 100.0f, v * 100.0f));
     }
 
     // Trasmissione continua delle coordinate gestuali 3D (Theremin & Sensoristica)
@@ -698,80 +667,171 @@ public:
             }
         }
 
-        // 3. Elaborazione della Catena di Effetti lungo i cavi del Canvas
-        for (auto& node : graphNodes)
+        // 2c. Raggruppamento Audio per Moduli Hardware & Effetti di Singolo Strumento
+        std::vector<juce::String> perInstFxIds;
+        for (auto& hw : graphNodes)
         {
-            if (node->isEffect && node->processor != nullptr)
-            {
-                juce::FloatVectorOperations::clear(node->bufferL.data(), safeSamples);
-                juce::FloatVectorOperations::clear(node->bufferR.data(), safeSamples);
+            if (!hw->isHardware) continue;
+            juce::FloatVectorOperations::clear(hw->bufferL.data(), safeSamples);
+            juce::FloatVectorOperations::clear(hw->bufferR.data(), safeSamples);
 
-                // Somma tutti i cavi in ingresso che puntano a questo effetto
+            for (auto& inst : graphNodes)
+            {
+                if (!inst->isInstrument) continue;
+                bool isDirect = false;
                 for (const auto& r : activeRoutes)
+                    if ((r.sourceNodeId == hw->id && r.targetNodeId == inst->id) ||
+                        (r.sourceNodeId == inst->id && r.targetNodeId == hw->id))
+                        { isDirect = true; break; }
+
+                if (isDirect)
                 {
-                    if (r.targetNodeId == node->id && (r.targetPinId == "audio:in" || !r.isModulation))
+                    juce::FloatVectorOperations::add(hw->bufferL.data(), inst->bufferL.data(), safeSamples);
+                    juce::FloatVectorOperations::add(hw->bufferR.data(), inst->bufferR.data(), safeSamples);
+                    continue;
+                }
+
+                // Cerca se c'è un effetto intermedio tra hw e inst (hw <-> fx <-> inst)
+                for (auto& fx : graphNodes)
+                {
+                    if (!fx->isEffect || fx->processor == nullptr) continue;
+                    bool toHw = false, toInst = false;
+                    for (const auto& r : activeRoutes)
                     {
-                        for (auto& src : graphNodes)
+                        if ((r.sourceNodeId == hw->id && r.targetNodeId == fx->id) ||
+                            (r.sourceNodeId == fx->id && r.targetNodeId == hw->id)) toHw = true;
+                        if ((r.sourceNodeId == fx->id && r.targetNodeId == inst->id) ||
+                            (r.sourceNodeId == inst->id && r.targetNodeId == fx->id)) toInst = true;
+                    }
+                    if (toHw && toInst)
+                    {
+                        perInstFxIds.push_back(fx->id);
+                        juce::FloatVectorOperations::clear(fx->bufferL.data(), safeSamples);
+                        juce::FloatVectorOperations::clear(fx->bufferR.data(), safeSamples);
+                        juce::FloatVectorOperations::add(fx->bufferL.data(), inst->bufferL.data(), safeSamples);
+                        juce::FloatVectorOperations::add(fx->bufferR.data(), inst->bufferR.data(), safeSamples);
+                        fx->processor->processNode(fx->bufferL.data(), fx->bufferR.data(), safeSamples, true);
+                        fx->realtimePeak.store(fx->processor->getPeakLevel());
+                        juce::FloatVectorOperations::add(hw->bufferL.data(), fx->bufferL.data(), safeSamples);
+                        juce::FloatVectorOperations::add(hw->bufferR.data(), fx->bufferR.data(), safeSamples);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3. Elaborazione della Catena di Effetti a valle (tra Modulo e MiMO / Master)
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            for (auto& node : graphNodes)
+            {
+                if (node->isEffect && node->processor != nullptr)
+                {
+                    if (std::find(perInstFxIds.begin(), perInstFxIds.end(), node->id) != perInstFxIds.end())
+                        continue;
+
+                    juce::FloatVectorOperations::clear(node->bufferL.data(), safeSamples);
+                    juce::FloatVectorOperations::clear(node->bufferR.data(), safeSamples);
+
+                    for (const auto& r : activeRoutes)
+                    {
+                        if (r.targetNodeId == node->id && (r.targetPinId == "audio:in" || !r.isModulation))
                         {
-                            if (src->id == r.sourceNodeId)
+                            for (auto& src : graphNodes)
                             {
-                                juce::FloatVectorOperations::add(node->bufferL.data(), src->bufferL.data(), safeSamples);
-                                juce::FloatVectorOperations::add(node->bufferR.data(), src->bufferR.data(), safeSamples);
+                                if (src->id == r.sourceNodeId)
+                                {
+                                    juce::FloatVectorOperations::add(node->bufferL.data(), src->bufferL.data(), safeSamples);
+                                    juce::FloatVectorOperations::add(node->bufferR.data(), src->bufferR.data(), safeSamples);
+                                }
                             }
                         }
                     }
-                }
 
-                // Processa con gestione Dry/Wet, Gain compensato, e Bypass pulito
-                node->processor->processNode(node->bufferL.data(), node->bufferR.data(), safeSamples, true);
-                node->realtimePeak.store(node->processor->getPeakLevel());
+                    node->processor->processNode(node->bufferL.data(), node->bufferR.data(), safeSamples, true);
+                    node->realtimePeak.store(node->processor->getPeakLevel());
+                }
             }
         }
 
         // 4. Somma al Master Bus
-        // Un nodo fluisce al master se è collegato a "master-out" / "rockpi",
-        // oppure se è uno strumento/effetto senza cavi audio a valle (per evitare nodi muti).
         int nodesSummedToMaster = 0;
         for (auto& node : graphNodes)
         {
-            if (!node->isInstrument && !node->isEffect && !node->isUtility)
+            if (std::find(perInstFxIds.begin(), perInstFxIds.end(), node->id) != perInstFxIds.end())
                 continue;
 
-            // Se è un LFO, è puramente CV / Trigger e non fluisce sul master audio
-            if (node->isUtility && dynamic_cast<dsp::MultiWaveLFONode*>(node->processor.get()) != nullptr)
-                continue;
-
-            bool hasRouteToMaster = false;
-            bool hasRouteToOtherEffect = false;
-
-            for (const auto& r : activeRoutes)
+            if (node->isHardware)
             {
-                if (r.sourceNodeId == node->id && !r.isModulation)
+                bool hasDownstreamEffect = false, hasRouteToMaster = false;
+                for (const auto& r : activeRoutes)
                 {
-                    if (r.targetNodeId == "master-out" || r.targetNodeId == "rockpi")
+                    if (r.sourceNodeId == node->id && !r.isModulation)
                     {
-                        hasRouteToMaster = true;
-                    }
-                    else
-                    {
-                        for (const auto& other : graphNodes)
-                        {
-                            if (other->id == r.targetNodeId && other->isEffect)
-                            {
-                                hasRouteToOtherEffect = true;
-                                break;
-                            }
-                        }
+                        if (r.targetNodeId == "master-out" || r.targetNodeId == "rockpi" || r.targetNodeId == "master")
+                            hasRouteToMaster = true;
+                        else
+                            for (const auto& other : graphNodes)
+                                if (other->id == r.targetNodeId && other->isEffect) hasDownstreamEffect = true;
                     }
                 }
+                if (hasRouteToMaster && !hasDownstreamEffect)
+                {
+                    if (outL != nullptr) juce::FloatVectorOperations::add(outL, node->bufferL.data(), safeSamples);
+                    if (outR != nullptr) juce::FloatVectorOperations::add(outR, node->bufferR.data(), safeSamples);
+                    nodesSummedToMaster++;
+                }
+                continue;
             }
 
-            if (hasRouteToMaster || !hasRouteToOtherEffect)
+            if (node->isEffect)
             {
-                if (outL != nullptr)
-                    juce::FloatVectorOperations::add(outL, node->bufferL.data(), safeSamples);
-                if (outR != nullptr)
-                    juce::FloatVectorOperations::add(outR, node->bufferR.data(), safeSamples);
+                bool hasRouteToMaster = false, hasDownstreamEffect = false;
+                for (const auto& r : activeRoutes)
+                {
+                    if (r.sourceNodeId == node->id && !r.isModulation)
+                    {
+                        if (r.targetNodeId == "master-out" || r.targetNodeId == "rockpi" || r.targetNodeId == "master")
+                            hasRouteToMaster = true;
+                        else
+                            for (const auto& other : graphNodes)
+                                if (other->id == r.targetNodeId && other->isEffect) hasDownstreamEffect = true;
+                    }
+                }
+                if (hasRouteToMaster || !hasDownstreamEffect)
+                {
+                    if (outL != nullptr) juce::FloatVectorOperations::add(outL, node->bufferL.data(), safeSamples);
+                    if (outR != nullptr) juce::FloatVectorOperations::add(outR, node->bufferR.data(), safeSamples);
+                    nodesSummedToMaster++;
+                }
+                continue;
+            }
+
+            if (node->isInstrument)
+            {
+                bool connectedToHw = false;
+                for (const auto& r : activeRoutes)
+                {
+                    if (r.sourceNodeId == node->id || r.targetNodeId == node->id)
+                    {
+                        const auto otherId = (r.sourceNodeId == node->id) ? r.targetNodeId : r.sourceNodeId;
+                        for (const auto& other : graphNodes)
+                            if (other->id == otherId && other->isHardware) connectedToHw = true;
+                    }
+                }
+                if (!connectedToHw)
+                {
+                    if (outL != nullptr) juce::FloatVectorOperations::add(outL, node->bufferL.data(), safeSamples);
+                    if (outR != nullptr) juce::FloatVectorOperations::add(outR, node->bufferR.data(), safeSamples);
+                    nodesSummedToMaster++;
+                }
+                continue;
+            }
+
+            if (node->isUtility && dynamic_cast<dsp::MultiWaveLFONode*>(node->processor.get()) == nullptr)
+            {
+                if (outL != nullptr) juce::FloatVectorOperations::add(outL, node->bufferL.data(), safeSamples);
+                if (outR != nullptr) juce::FloatVectorOperations::add(outR, node->bufferR.data(), safeSamples);
                 nodesSummedToMaster++;
             }
         }
@@ -810,32 +870,22 @@ public:
     // ========================================================================
     void setEyeFingerSound(int globalIndex, int soundId)
     {
-        switch (globalIndex)
-        {
-            case 0: eyeFingerSound0.store(soundId); break;
-            case 1: eyeFingerSound1.store(soundId); break;
-            case 2: eyeFingerSound2.store(soundId); break;
-            case 3: eyeFingerSound3.store(soundId); break;
-            case 4: eyeFingerSound4.store(soundId); break;
-            case 5: eyeFingerSound5.store(soundId); break;
-            case 6: eyeFingerSound6.store(soundId); break;
-            case 7: eyeFingerSound7.store(soundId); break;
+        switch (globalIndex) {
+            case 0: eyeFingerSound0.store(soundId); break; case 1: eyeFingerSound1.store(soundId); break;
+            case 2: eyeFingerSound2.store(soundId); break; case 3: eyeFingerSound3.store(soundId); break;
+            case 4: eyeFingerSound4.store(soundId); break; case 5: eyeFingerSound5.store(soundId); break;
+            case 6: eyeFingerSound6.store(soundId); break; case 7: eyeFingerSound7.store(soundId); break;
             default: break;
         }
     }
 
     int getEyeFingerSound(int globalIndex) const
     {
-        switch (globalIndex)
-        {
-            case 0: return eyeFingerSound0.load();
-            case 1: return eyeFingerSound1.load();
-            case 2: return eyeFingerSound2.load();
-            case 3: return eyeFingerSound3.load();
-            case 4: return eyeFingerSound4.load();
-            case 5: return eyeFingerSound5.load();
-            case 6: return eyeFingerSound6.load();
-            case 7: return eyeFingerSound7.load();
+        switch (globalIndex) {
+            case 0: return eyeFingerSound0.load(); case 1: return eyeFingerSound1.load();
+            case 2: return eyeFingerSound2.load(); case 3: return eyeFingerSound3.load();
+            case 4: return eyeFingerSound4.load(); case 5: return eyeFingerSound5.load();
+            case 6: return eyeFingerSound6.load(); case 7: return eyeFingerSound7.load();
             default: return 0;
         }
     }
@@ -843,23 +893,13 @@ public:
     void triggerSoundById(int soundId, float velocity)
     {
         const float v = juce::jlimit(0.15f, 1.0f, velocity);
-        switch (soundId)
-        {
-            case 0: drumKit.trigger(0, v); break;
-            case 1: drumKit.trigger(1, v); break;
-            case 2: drumKit.trigger(2, v); break;
-            case 3: drumKit.trigger(3, v); break;
-            case 4: synthVoice.triggerNote(130.81f, v, false); break;
-            case 5: synthVoice.triggerNote(146.83f, v, false); break;
-            case 6: synthVoice.triggerNote(164.81f, v, false); break;
-            case 7: synthVoice.triggerNote(196.00f, v, false); break;
-            case 8: synthVoice.triggerNote(220.00f, v, false); break;
-            case 9: synthVoice.triggerNote(261.63f, v, false); break;
-            case 10: synthVoice.triggerNote(261.63f, v, false); break;
-            case 11: synthVoice.triggerNote(329.63f, v, false); break;
-            case 12: subVoice.triggerNote(48.0f, v, true); break;
-            case 13: drumKit.trigger(1, v); break;
-            case 14: synthVoice.triggerNote(523.25f, v, false); break;
+        switch (soundId) {
+            case 0: case 1: case 2: case 3: drumKit.trigger(soundId, v); break;
+            case 4: synthVoice.triggerNote(130.81f, v, false); break; case 5: synthVoice.triggerNote(146.83f, v, false); break;
+            case 6: synthVoice.triggerNote(164.81f, v, false); break; case 7: synthVoice.triggerNote(196.00f, v, false); break;
+            case 8: synthVoice.triggerNote(220.00f, v, false); break; case 9: case 10: synthVoice.triggerNote(261.63f, v, false); break;
+            case 11: synthVoice.triggerNote(329.63f, v, false); break; case 12: subVoice.triggerNote(48.0f, v, true); break;
+            case 13: drumKit.trigger(1, v); break; case 14: synthVoice.triggerNote(523.25f, v, false); break;
             default: drumKit.trigger(soundId % 4, v); break;
         }
     }
@@ -869,51 +909,28 @@ private:
         const juce::String& id, const juce::String& label, const juce::String& category, const juce::String& engine)
     {
         const juce::String full = (id + " " + label + " " + category + " " + engine).toLowerCase();
-
-        // Strumenti
-        if (full.contains("theremin"))
-            return std::make_unique<dsp::Theremin3DVoice>();
+        if (full.contains("theremin")) return std::make_unique<dsp::Theremin3DVoice>();
         if (full.contains("karplus") || full.contains("pluck") || full.contains("kalimba") || full.contains("box") || full.contains("carillon"))
             return std::make_unique<dsp::KarplusPluckVoice>();
-        if (full.contains("felt") || full.contains("piano"))
-        {
-            auto piano = std::make_unique<dsp::MelodicSynthVoice>();
-            piano->setIsPianoFelt(true);
-            return piano;
+        if (full.contains("felt") || full.contains("piano")) {
+            auto piano = std::make_unique<dsp::MelodicSynthVoice>(); piano->setIsPianoFelt(true); return piano;
         }
         if (full.contains("drum") || full.contains("kit") || full.contains("toy") || full.contains("percuss") || full.contains("cassa"))
             return std::make_unique<dsp::AnalogDrumKit>();
         if (full.contains("synth") || full.contains("va") || full.contains("lead") || full.contains("bass") || full.contains("chalk"))
             return std::make_unique<dsp::MelodicSynthVoice>();
-
-        // Effetti
         if (full.contains("saturaz") || full.contains("drive") || full.contains("soft") || full.contains("overdrive"))
             return std::make_unique<dsp::SoftSaturatorNode>();
-        if (full.contains("moog") || full.contains("ladder"))
-            return std::make_unique<dsp::MoogLadderNode>();
-        if (full.contains("chorus") || full.contains("bbd") || full.contains("ensemble"))
-            return std::make_unique<dsp::BBDChorusNode>();
-        if (full.contains("filtro") || full.contains("filter") || full.contains("svf") || full.contains("naif"))
-            return std::make_unique<dsp::SVFFilterNode>();
-        if (full.contains("eco") || full.contains("delay") || full.contains("nastro"))
-            return std::make_unique<dsp::StereoTapeDelay>();
-        if (full.contains("riverbero") || full.contains("reverb") || full.contains("fdn") || full.contains("cattedrale"))
-            return std::make_unique<dsp::LushReverb>();
-
-        // Utility
-        if (full.contains("lfo") || full.contains("mod_lfo"))
-            return std::make_unique<dsp::MultiWaveLFONode>();
-        if (full.contains("scale") || full.contains("quantiz"))
-            return std::make_unique<dsp::ScaleLock>();
-        if (full.contains("follower") || full.contains("env"))
-            return std::make_unique<dsp::EnvelopeFollower>();
-        if (full.contains("looper") || full.contains("tape_loop"))
-            return std::make_unique<dsp::TapeLooperProcessor>();
-
-        // Fallback in base alla categoria
-        if (category.containsIgnoreCase("Effett") || id.startsWithIgnoreCase("fx-"))
-            return std::make_unique<dsp::SVFFilterNode>();
-
+        if (full.contains("moog") || full.contains("ladder")) return std::make_unique<dsp::MoogLadderNode>();
+        if (full.contains("chorus") || full.contains("bbd") || full.contains("ensemble")) return std::make_unique<dsp::BBDChorusNode>();
+        if (full.contains("filtro") || full.contains("filter") || full.contains("svf") || full.contains("naif")) return std::make_unique<dsp::SVFFilterNode>();
+        if (full.contains("eco") || full.contains("delay") || full.contains("nastro")) return std::make_unique<dsp::StereoTapeDelay>();
+        if (full.contains("riverbero") || full.contains("reverb") || full.contains("fdn") || full.contains("cattedrale")) return std::make_unique<dsp::LushReverb>();
+        if (full.contains("lfo") || full.contains("mod_lfo")) return std::make_unique<dsp::MultiWaveLFONode>();
+        if (full.contains("scale") || full.contains("quantiz")) return std::make_unique<dsp::ScaleLock>();
+        if (full.contains("follower") || full.contains("env")) return std::make_unique<dsp::EnvelopeFollower>();
+        if (full.contains("looper") || full.contains("tape_loop")) return std::make_unique<dsp::TapeLooperProcessor>();
+        if (category.containsIgnoreCase("Effett") || id.startsWithIgnoreCase("fx-")) return std::make_unique<dsp::SVFFilterNode>();
         return std::make_unique<dsp::AnalogDrumKit>();
     }
 
